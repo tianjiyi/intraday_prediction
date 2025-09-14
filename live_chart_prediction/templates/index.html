@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQQ Live Prediction Chart - Kronos Model</title>
+    
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <!-- Socket.IO for WebSocket -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 Kronos QQQ Prediction</h1>
+            <div class="status-bar">
+                <span id="connection-status" class="status disconnected">● Disconnected</span>
+                <span id="last-update">Last Update: --</span>
+                <span id="timezone-info" class="timezone-info"></span>
+                <button id="refresh-btn" class="btn-refresh">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Chart Container -->
+            <div class="chart-container">
+                <div id="chart"></div>
+            </div>
+
+            <!-- Stats Panel -->
+            <div class="stats-panel">
+                <h3>📊 Prediction Statistics</h3>
+                
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Current Price:</label>
+                        <span id="current-price" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Predicted (30m):</label>
+                        <span id="predicted-price" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Probability Up:</label>
+                        <span id="prob-up" class="value positive">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Expected Return:</label>
+                        <span id="exp-return" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <h4>Confidence Intervals</h4>
+                    <div class="stat-item">
+                        <label>90th Percentile:</label>
+                        <span id="p90" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>75th Percentile:</label>
+                        <span id="p75" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Median (50th):</label>
+                        <span id="p50" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>25th Percentile:</label>
+                        <span id="p25" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>10th Percentile:</label>
+                        <span id="p10" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <h4>Technical Indicators</h4>
+                    <div class="stat-item">
+                        <label>VWAP:</label>
+                        <span id="vwap" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Upper:</label>
+                        <span id="bb-upper" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Middle:</label>
+                        <span id="bb-middle" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Lower:</label>
+                        <span id="bb-lower" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Model:</label>
+                        <span class="value">Kronos-small</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Samples:</label>
+                        <span id="n-samples" class="value">100</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Horizon:</label>
+                        <span class="value">30 min</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Trading Hours:</label>
+                        <span id="rth-status" class="value">RTH Only</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Data Bars:</label>
+                        <span id="data-bars" class="value">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <select id="ticker-select">
+                <option value="QQQ" selected>QQQ</option>
+                <option value="SPY">SPY</option>
+                <option value="AAPL">AAPL</option>
+                <option value="TSLA">TSLA</option>
+                <option value="MSFT">MSFT</option>
+                <option value="NVDA">NVDA</option>
+            </select>
+            <select id="timeframe-select">
+                <option value="1" selected>1 min</option>
+                <option value="5">5 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+            </select>
+            <button id="toggle-predictions" class="btn">Toggle Predictions</button>
+            <button id="toggle-confidence" class="btn">Toggle Confidence Bands</button>
+            <button id="toggle-indicators" class="btn">Toggle Indicators</button>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>Powered by Kronos Model | Data from Alpaca Markets | Charts by TradingView Lightweight Charts</p>
+        </div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+</body>
+</html>

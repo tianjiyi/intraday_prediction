@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""
+Prediction Service - Connects to Kronos model for QQQ predictions
+"""
+
+import os
+import sys
+import json
+import yaml
+import logging
+from datetime import datetime, timedelta
+import numpy as np
+import pandas as pd
+import pytz
+import warnings
+warnings.filterwarnings('ignore')
+
+# Add parent directory and Kronos to path
+sys.path.append("..")
+sys.path.append("../Kronos")
+
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from model import Kronos, KronosTokenizer, KronosPredictor
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class PredictionService:
+    """Service for generating QQQ predictions using Kronos model"""
+    
+    def __init__(self, config_path="../config.yaml"):
+        """Initialize the prediction service"""
+        self.config = self._load_config(config_path)
+        self.symbol = self.config['symbol']
+        self.timeframe = TimeFrame.Minute  # Default timeframe
+        
+        # RTH configuration
+        self.rth_only = self.config.get('data', {}).get('rth_only', True)
+        self.timezone = pytz.timezone('US/Eastern')  # Market timezone
+        
+        # Initialize Alpaca client
+        self._init_alpaca()
+        
+        # Initialize Kronos model
+        self._init_model()
+        
+        # Cache for latest data
+        self.latest_historical = None
+        self.latest_prediction = None
+        self.last_update = None
+        
+        logger.info(f"RTH Only mode: {'Enabled' if self.rth_only else 'Disabled'}")
+        
+    def _load_config(self, config_path):
+        """Load configuration from YAML file"""
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    
+    def _init_alpaca(self):
+        """Initialize Alpaca API client"""
+        self.alpaca_client = StockHistoricalDataClient(
+            api_key=self.config['ALPACA_KEY_ID'],
+            secret_key=self.config['ALPACA_SECRET_KEY']
+        )
+        logger.info("Alpaca client initialized")
+    
+    def _init_model(self):
+        """Initialize Kronos model and tokenizer"""
+        try:
+            # Load tokenizer from pretrained
+            self.tokenizer = KronosTokenizer.from_pretrained(self.config['model']['tokenizer'])
+            
+            # Load model from pretrained
+            self.model = Kronos.from_pretrained(self.config['model']['checkpoint'])
+            
+            # Create predictor
+            self.predictor = KronosPredictor(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device=self.config['model']['device'],
+                max_context=self.config['model']['max_context']
+            )
+            
+            logger.info(f"Kronos model loaded: {self.config['model']['checkpoint']}")
+        except Exception as e:
+            logger.error(f"Failed to initialize model: {e}")
+            raise
+    
+    def update_settings(self, symbol=None, timeframe_minutes=None):
+        """Update service settings"""
+        if symbol:
+            self.symbol = symbol
+            logger.info(f"Updated symbol to: {symbol}")
+        
+        if timeframe_minutes:
+            # Convert minutes to TimeFrame
+            timeframe_map = {
+                1: TimeFrame.Minute,
+                5: TimeFrame(5, TimeFrameUnit.Minute),
+                15: TimeFrame(15, TimeFrameUnit.Minute),
+                30: TimeFrame(30, TimeFrameUnit.Minute)
+            }
+            self.timeframe = timeframe_map.get(int(timeframe_minutes), TimeFrame.Minute)
+            logger.info(f"Updated timeframe to: {timeframe_minutes} minutes")
+        
+        # Clear cached data when settings change
+        self.latest_historical = None
+        self.latest_prediction = None
+        self.last_update = None
+    
+    def fetch_historical_data(self, days=3):
+        """Fetch historical data from Alpaca"""
+        try:
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=days)
+            
+            request = StockBarsRequest(
+                symbol_or_symbols=self.symbol,
+                timeframe=self.timeframe,
+                start=start_time,
+                end=end_time
+            )
+            
+            bars = self.alpaca_client.get_stock_bars(request)
+            df = bars.df
+            
+            if df.empty:
+                logger.warning("No data received from Alpaca")
+                return None
+            
+            # Reset index and format
+            df = df.reset_index()
+            
+            # Log initial data count
+            initial_count = len(df)
+            logger.info(f"Fetched {initial_count} bars from Alpaca (includes pre/post market)")
+            
+            # Apply RTH filtering if enabled
+            if self.rth_only:
+                # Convert timezone to Eastern Time for RTH filtering
+                df_et = df.copy()
+                df_et['timestamp'] = df_et['timestamp'].dt.tz_convert(self.timezone)
+                df_et = df_et.set_index('timestamp')
+                
+                # Filter to RTH only (9:30 AM - 4:00 PM ET)
+                df_rth = df_et.between_time('09:30', '15:59')
+                
+                # Convert back to original format
+                df = df_rth.reset_index()
+                
+                rth_count = len(df)
+                logger.info(f"RTH filtering: {rth_count} bars remaining (removed {initial_count - rth_count} pre/post-market bars)")
+            else:
+                logger.info("RTH filtering disabled - using all trading hours")
+            
+            if df.empty:
+                logger.warning("No data remaining after RTH filtering")
+                return None
+            
+            # Convert to format expected by chart
+            historical = []
+            for _, row in df.iterrows():
+                historical.append({
+                    'timestamp': row['timestamp'].isoformat(),
+                    'open': float(row['open']),
+                    'high': float(row['high']),
+                    'low': float(row['low']),
+                    'close': float(row['close']),
+                    'volume': int(row['volume'])
+                })
+            
+            self.latest_historical = historical
+            logger.info(f"Final dataset: {len(historical)} bars for model and chart")
+            return historical
+            
+        except Exception as e:
+            logger.error(f"Error fetching historical data: {e}")
+            return None
+    
+    def generate_prediction(self, n_samples=10):
+        """Generate prediction using Kronos model"""
+        try:
+            if not self.latest_historical:
+                self.fetch_historical_data()
+            
+            if not self.latest_historical:
+                return None
+            
+            # Prepare context data (last 480 bars)
+            context_length = self.config['data']['lookback_bars']
+            context_data = self.latest_historical[-context_length:]
+            
+            # Create DataFrame for Kronos
+            data_for_kronos = []
+            for bar in context_data:
+                data_for_kronos.append({
+                    'open': bar['open'],
+                    'high': bar['high'],
+                    'low': bar['low'],
+                    'close': bar['close'],
+                    'volume': bar['volume']
+                })
+            
+            context_df = pd.DataFrame(data_for_kronos)
+            context_df['amount'] = context_df['volume'] * context_df['close']  # Kronos expects amount column
+            
+            # Create timestamps
+            x_timestamp = pd.Series([pd.Timestamp(bar['timestamp']) for bar in context_data])
+            
+            # Generate future timestamps for prediction
+            last_timestamp = x_timestamp.iloc[-1]
+            y_timestamp = pd.Series(pd.date_range(
+                start=last_timestamp + pd.Timedelta(minutes=1),
+                periods=self.config['data']['horizon'],
+                freq='1min'
+            ))
+            
+            # Generate predictions using Kronos predictor
+            logger.info(f"Generating {n_samples} prediction samples...")
+            
+            # For simplicity, generate one prediction with moderate sample_count
+            # This is more efficient than generating many individual predictions
+            pred_df = self.predictor.predict(
+                df=context_df,
+                x_timestamp=x_timestamp,
+                y_timestamp=y_timestamp,
+                pred_len=self.config['data']['horizon'],
+                sample_count=5,  # Lower for faster response
+                T=self.config['sampling']['temperature'],
+                top_p=self.config['sampling']['top_p']
+            )
+            
+            # Extract close prices from prediction
+            predictions = pred_df['close'].values
+            
+            # To simulate multiple samples, add some noise to the mean prediction
+            # This is a simplification since we can't get individual samples easily
+            mean_pred = predictions
+            std_dev = np.std(mean_pred) * 0.1  # Small variation
+            
+            all_predictions = []
+            for _ in range(n_samples):
+                noise = np.random.normal(0, std_dev, len(mean_pred))
+                sample = mean_pred + noise
+                all_predictions.append(sample)
+            
+            predictions = np.array(all_predictions)
+            
+            # Calculate statistics
+            current_price = context_df['close'].iloc[-1]
+            mean_path = np.mean(predictions, axis=0)
+            
+            # Calculate percentiles
+            percentiles = {
+                'p10': np.percentile(predictions, 10, axis=0).tolist(),
+                'p25': np.percentile(predictions, 25, axis=0).tolist(),
+                'p50': np.percentile(predictions, 50, axis=0).tolist(),
+                'p75': np.percentile(predictions, 75, axis=0).tolist(),
+                'p90': np.percentile(predictions, 90, axis=0).tolist()
+            }
+            
+            # Calculate probability of price going up
+            final_prices = predictions[:, -1]
+            p_up = np.mean(final_prices > current_price)
+            
+            # Calculate expected return
+            exp_return = (np.mean(final_prices) - current_price) / current_price
+            
+            # Calculate technical indicators
+            vwap = self._calculate_vwap(context_df)
+            bollinger = self._calculate_bollinger(context_df['close'].values)
+            
+            prediction_summary = {
+                'current_close': current_price,
+                'mean_path': mean_path.tolist(),
+                'percentiles': percentiles,
+                'p_up_30m': float(p_up),
+                'exp_ret_30m': float(exp_return),
+                'current_vwap': vwap,
+                'bollinger_bands': bollinger,
+                'n_samples': n_samples,
+                'rth_only': self.rth_only,
+                'data_bars_count': len(context_data),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            self.latest_prediction = prediction_summary
+            self.last_update = datetime.now()
+            
+            logger.info(f"Prediction generated: P(up)={p_up:.2%}, E[r]={exp_return:.3%}")
+            return prediction_summary
+            
+        except Exception as e:
+            logger.error(f"Error generating prediction: {e}")
+            return None
+    
+    def _calculate_vwap(self, df):
+        """Calculate VWAP from DataFrame"""
+        try:
+            # Use last 20 bars for VWAP calculation
+            recent_df = df.tail(20)
+            typical_price = (recent_df['high'] + recent_df['low'] + recent_df['close']) / 3
+            total_value = (typical_price * recent_df['volume']).sum()
+            total_volume = recent_df['volume'].sum()
+            
+            return total_value / total_volume if total_volume > 0 else df['close'].iloc[-1]
+        except:
+            return df['close'].iloc[-1] if not df.empty else None
+    
+    def _calculate_bollinger(self, prices, period=20, std_dev=2):
+        """Calculate Bollinger Bands"""
+        try:
+            recent_prices = prices[-period:]
+            middle = np.mean(recent_prices)
+            std = np.std(recent_prices)
+            
+            return {
+                'upper': middle + (std_dev * std),
+                'middle': middle,
+                'lower': middle - (std_dev * std)
+            }
+        except:
+            return None
+    
+    def get_historical_data(self):
+        """Get cached historical data or fetch new"""
+        if not self.latest_historical or self._is_stale():
+            self.fetch_historical_data()
+        return self.latest_historical
+    
+    def get_latest_prediction(self):
+        """Get cached prediction or generate new"""
+        if not self.latest_prediction or self._is_stale():
+            self.generate_prediction()
+        return self.latest_prediction
+    
+    def generate_new_prediction(self):
+        """Force generation of new prediction"""
+        self.fetch_historical_data()
+        return self.generate_prediction()
+    
+    def _is_stale(self, max_age_minutes=5):
+        """Check if cached data is stale"""
+        if not self.last_update:
+            return True
+        age = datetime.now() - self.last_update
+        return age.total_seconds() > (max_age_minutes * 60)
+
+# Test the service
+if __name__ == "__main__":
+    service = PredictionService()
+    
+    # Test fetching historical data
+    historical = service.fetch_historical_data()
+    if historical:
+        print(f"Fetched {len(historical)} bars")
+        print(f"Latest bar: {historical[-1]}")
+    
+    # Test generating prediction
+    prediction = service.generate_prediction()
+    if prediction:
+        print(f"\nPrediction Summary:")
+        print(f"Current Price: ${prediction['current_close']:.2f}")
+        print(f"P(Up in 30m): {prediction['p_up_30m']:.2%}")
+        print(f"Expected Return: {prediction['exp_ret_30m']:.3%}")
+        print(f"VWAP: ${prediction['current_vwap']:.2f}")

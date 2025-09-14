@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Lightweight Charts</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+    <h1>Test Chart</h1>
+    <div id="chart" style="width: 800px; height: 400px;"></div>
+    
+    <script>
+        // Test if library loads
+        console.log('LightweightCharts loaded:', typeof LightweightCharts);
+        
+        if (typeof LightweightCharts !== 'undefined') {
+            // Create chart
+            const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+                width: 800,
+                height: 400,
+                layout: {
+                    backgroundColor: '#FFFFFF',
+                    textColor: '#000000',
+                },
+            });
+            
+            // Test candlestick series
+            const candleSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+            });
+            
+            // Add sample data
+            const data = [
+                { time: '2024-01-01', open: 100, high: 102, low: 99, close: 101 },
+                { time: '2024-01-02', open: 101, high: 103, low: 100, close: 102 },
+                { time: '2024-01-03', open: 102, high: 104, low: 101, close: 103 },
+            ];
+            
+            candleSeries.setData(data);
+            
+            console.log('Chart created successfully!');
+            console.log('Available methods:', Object.keys(chart));
+        } else {
+            document.body.innerHTML += '<p style="color: red;">LightweightCharts library failed to load!</p>';
+        }
+    </script>
+</body>
+</html>
