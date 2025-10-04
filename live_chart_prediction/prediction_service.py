@@ -19,13 +19,17 @@ warnings.filterwarnings('ignore')
 sys.path.append("..")
 sys.path.append("../Kronos")
 
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from model import Kronos, KronosTokenizer, KronosPredictor
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging with timestamps (module-level)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 class PredictionService:
@@ -41,7 +45,7 @@ class PredictionService:
         self.rth_only = self.config.get('data', {}).get('rth_only', True)
         self.timezone = pytz.timezone('US/Eastern')  # Market timezone
         
-        # Initialize Alpaca client
+        # Initialize Alpaca clients
         self._init_alpaca()
         
         # Initialize Kronos model
@@ -53,6 +57,29 @@ class PredictionService:
         self.last_update = None
         
         logger.info(f"RTH Only mode: {'Enabled' if self.rth_only else 'Disabled'}")
+    
+    def _is_crypto_symbol(self, symbol):
+        """Determine if symbol is cryptocurrency based on format"""
+        return '/' in symbol  # Crypto symbols contain '/' like 'BTC/USD'
+    
+    def _get_asset_type(self, symbol):
+        """Get asset type string for display"""
+        if self._is_crypto_symbol(symbol):
+            return "crypto"
+        return "stock"
+    
+    def _get_display_name(self, symbol):
+        """Get friendly display name for symbol"""
+        crypto_names = {
+            'BTC/USD': 'Bitcoin',
+            'ETH/USD': 'Ethereum',
+            'LTC/USD': 'Litecoin',
+            'DOGE/USD': 'Dogecoin'
+        }
+        
+        if symbol in crypto_names:
+            return crypto_names[symbol]
+        return symbol  # Return symbol as-is for stocks
         
     def _load_config(self, config_path):
         """Load configuration from YAML file"""
@@ -60,12 +87,20 @@ class PredictionService:
             return yaml.safe_load(f)
     
     def _init_alpaca(self):
-        """Initialize Alpaca API client"""
-        self.alpaca_client = StockHistoricalDataClient(
+        """Initialize Alpaca API clients"""
+        # Stock client (requires API keys)
+        self.stock_client = StockHistoricalDataClient(
             api_key=self.config['ALPACA_KEY_ID'],
             secret_key=self.config['ALPACA_SECRET_KEY']
         )
-        logger.info("Alpaca client initialized")
+        
+        # Crypto client (no API keys required, but using them increases rate limits)
+        self.crypto_client = CryptoHistoricalDataClient(
+            api_key=self.config.get('ALPACA_KEY_ID'),
+            secret_key=self.config.get('ALPACA_SECRET_KEY')
+        )
+        
+        logger.info("Alpaca clients initialized (stock and crypto)")
     
     def _init_model(self):
         """Initialize Kronos model and tokenizer"""
@@ -89,12 +124,53 @@ class PredictionService:
             logger.error(f"Failed to initialize model: {e}")
             raise
     
+    def _get_timeframe_minutes(self):
+        """Extract timeframe in minutes from self.timeframe"""
+        if self.timeframe == TimeFrame.Minute:
+            return 1
+        elif hasattr(self.timeframe, 'amount'):
+            return self.timeframe.amount
+        else:
+            return 1  # Default to 1 minute
+
+    def _calculate_days_to_fetch(self, timeframe_minutes, target_bars=None):
+        """
+        Calculate how many days to fetch to get target number of bars
+
+        Args:
+            timeframe_minutes: Timeframe in minutes (1, 5, 15, 30)
+            target_bars: Target number of bars to fetch (default: from config or 350)
+
+        Returns:
+            Number of days to fetch
+        """
+        # Get target bars from config or use default
+        if target_bars is None:
+            target_bars = self.config.get('data', {}).get('target_historical_bars', 350)
+
+        # RTH trading hours: 6.5 hours = 390 minutes per day
+        rth_minutes_per_day = 390
+        bars_per_day = rth_minutes_per_day / timeframe_minutes
+        days_needed = target_bars / bars_per_day
+
+        # Round up and add buffer for weekends/holidays (1.5x multiplier)
+        days_with_buffer = int(days_needed * 1.5) + 1
+
+        # Cap at reasonable maximum (60 days to avoid excessive API calls)
+        days_to_fetch = min(days_with_buffer, 60)
+
+        logger.info(f"Timeframe: {timeframe_minutes}min, Target bars: {target_bars}, "
+                   f"Bars/day: {bars_per_day:.1f}, Days needed: {days_needed:.1f}, "
+                   f"Days to fetch (with buffer): {days_to_fetch}")
+
+        return days_to_fetch
+
     def update_settings(self, symbol=None, timeframe_minutes=None):
         """Update service settings"""
         if symbol:
             self.symbol = symbol
             logger.info(f"Updated symbol to: {symbol}")
-        
+
         if timeframe_minutes:
             # Convert minutes to TimeFrame
             timeframe_map = {
@@ -105,26 +181,58 @@ class PredictionService:
             }
             self.timeframe = timeframe_map.get(int(timeframe_minutes), TimeFrame.Minute)
             logger.info(f"Updated timeframe to: {timeframe_minutes} minutes")
-        
+
         # Clear cached data when settings change
         self.latest_historical = None
         self.latest_prediction = None
         self.last_update = None
     
-    def fetch_historical_data(self, days=3):
-        """Fetch historical data from Alpaca"""
+    def fetch_historical_data(self, days=None):
+        """Fetch historical data from Alpaca
+
+        Args:
+            days: Number of days to fetch. If None, automatically calculates based on timeframe
+                  to achieve target bar count (300-400 bars)
+        """
         try:
-            end_time = datetime.now()
+            # If days not specified, calculate based on timeframe
+            if days is None:
+                timeframe_minutes = self._get_timeframe_minutes()
+                days = self._calculate_days_to_fetch(timeframe_minutes)
+                logger.info(f"Auto-calculated {days} days to fetch for {timeframe_minutes}min timeframe")
+
+            # Use timezone-aware datetime for proper market data fetching
+            # Alpaca expects UTC or market timezone (Eastern)
+            eastern = pytz.timezone('US/Eastern')
+            end_time = datetime.now(eastern)
             start_time = end_time - timedelta(days=days)
+
+            # Log the date range being fetched
+            logger.info(f"Fetching data from {start_time.strftime('%Y-%m-%d %H:%M %Z')} to {end_time.strftime('%Y-%m-%d %H:%M %Z')}")
             
-            request = StockBarsRequest(
-                symbol_or_symbols=self.symbol,
-                timeframe=self.timeframe,
-                start=start_time,
-                end=end_time
-            )
+            # Determine if this is a crypto or stock symbol
+            is_crypto = self._is_crypto_symbol(self.symbol)
             
-            bars = self.alpaca_client.get_stock_bars(request)
+            if is_crypto:
+                # Use crypto client and request
+                request = CryptoBarsRequest(
+                    symbol_or_symbols=self.symbol,
+                    timeframe=self.timeframe,
+                    start=start_time,
+                    end=end_time
+                )
+                bars = self.crypto_client.get_crypto_bars(request)
+                logger.info(f"Fetching crypto data for {self.symbol}")
+            else:
+                # Use stock client and request
+                request = StockBarsRequest(
+                    symbol_or_symbols=self.symbol,
+                    timeframe=self.timeframe,
+                    start=start_time,
+                    end=end_time
+                )
+                bars = self.stock_client.get_stock_bars(request)
+                logger.info(f"Fetching stock data for {self.symbol}")
             df = bars.df
             
             if df.empty:
@@ -136,25 +244,29 @@ class PredictionService:
             
             # Log initial data count
             initial_count = len(df)
-            logger.info(f"Fetched {initial_count} bars from Alpaca (includes pre/post market)")
             
-            # Apply RTH filtering if enabled
-            if self.rth_only:
-                # Convert timezone to Eastern Time for RTH filtering
-                df_et = df.copy()
-                df_et['timestamp'] = df_et['timestamp'].dt.tz_convert(self.timezone)
-                df_et = df_et.set_index('timestamp')
-                
-                # Filter to RTH only (9:30 AM - 4:00 PM ET)
-                df_rth = df_et.between_time('09:30', '15:59')
-                
-                # Convert back to original format
-                df = df_rth.reset_index()
-                
-                rth_count = len(df)
-                logger.info(f"RTH filtering: {rth_count} bars remaining (removed {initial_count - rth_count} pre/post-market bars)")
+            if is_crypto:
+                logger.info(f"Fetched {initial_count} bars from Alpaca (crypto trades 24/7)")
             else:
-                logger.info("RTH filtering disabled - using all trading hours")
+                logger.info(f"Fetched {initial_count} bars from Alpaca (includes pre/post market)")
+                
+                # Apply RTH filtering if enabled (only for stocks, crypto trades 24/7)
+                if self.rth_only:
+                    # Convert timezone to Eastern Time for RTH filtering
+                    df_et = df.copy()
+                    df_et['timestamp'] = df_et['timestamp'].dt.tz_convert(self.timezone)
+                    df_et = df_et.set_index('timestamp')
+                    
+                    # Filter to RTH only (9:30 AM - 4:00 PM ET)
+                    df_rth = df_et.between_time('09:30', '15:59')
+                    
+                    # Convert back to original format
+                    df = df_rth.reset_index()
+                    
+                    rth_count = len(df)
+                    logger.info(f"RTH filtering: {rth_count} bars remaining (removed {initial_count - rth_count} pre/post-market bars)")
+                else:
+                    logger.info("RTH filtering disabled - using all trading hours")
             
             if df.empty:
                 logger.warning("No data remaining after RTH filtering")
@@ -179,12 +291,14 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error fetching historical data: {e}")
             return None
+
     
     def generate_prediction(self, n_samples=10):
         """Generate prediction using Kronos model"""
         try:
+            logger.info(f"Starting prediction generation for {self.symbol} with {n_samples} samples")
             if not self.latest_historical:
-                self.fetch_historical_data()
+                self.fetch_historical_data()  # Use dynamic calculation based on timeframe
             
             if not self.latest_historical:
                 return None
@@ -272,7 +386,56 @@ class PredictionService:
             # Calculate technical indicators
             vwap = self._calculate_vwap(context_df)
             bollinger = self._calculate_bollinger(context_df['close'].values)
-            
+
+            # Calculate Simple Moving Averages for current price
+            sma_5 = self._calculate_sma(context_df['close'].values, 5)
+            sma_21 = self._calculate_sma(context_df['close'].values, 21)
+            sma_233 = self._calculate_sma(context_df['close'].values, 233)
+
+            # Calculate SMA series for chart display using full historical data
+            # Create DataFrame from the latest_historical data for SMA calculation
+            try:
+                if self.latest_historical and len(self.latest_historical) > 0:
+                    # Ensure we have proper DataFrame structure
+                    full_df = pd.DataFrame(self.latest_historical)
+
+                    # Check if we have the required 'close' column
+                    if 'close' in full_df.columns:
+                        sma_5_series = self._calculate_sma_series(full_df, 5)
+                        sma_21_series = self._calculate_sma_series(full_df, 21)
+                        sma_233_series = self._calculate_sma_series(full_df, 233)
+                        logger.info(f"SMA series lengths: SMA5={len(sma_5_series)}, SMA21={len(sma_21_series)}, SMA233={len(sma_233_series)}")
+                    else:
+                        logger.warning(f"No 'close' column in historical data. Columns: {list(full_df.columns)}")
+                        sma_5_series = []
+                        sma_21_series = []
+                        sma_233_series = []
+                else:
+                    logger.warning("No historical data available for SMA calculation")
+                    sma_5_series = []
+                    sma_21_series = []
+                    sma_233_series = []
+
+                # Debug logging
+                sma_5_str = f"{sma_5:.2f}" if sma_5 is not None else "None"
+                sma_21_str = f"{sma_21:.2f}" if sma_21 is not None else "None"
+                sma_233_str = f"{sma_233:.2f}" if sma_233 is not None else "None"
+                logger.info(f"SMA calculations: SMA5={sma_5_str}, SMA21={sma_21_str}, SMA233={sma_233_str}")
+
+            except Exception as e:
+                logger.error(f"Error in SMA calculation: {e}")
+                sma_5_series = []
+                sma_21_series = []
+                sma_233_series = []
+
+            # Get asset type info
+            asset_type = self._get_asset_type(self.symbol)
+            display_name = self._get_display_name(self.symbol)
+
+            # Extract model name from checkpoint path (e.g., "NeoQuasar/Kronos-base" -> "Kronos-base")
+            model_checkpoint = self.config['model']['checkpoint']
+            model_name = model_checkpoint.split('/')[-1] if '/' in model_checkpoint else model_checkpoint
+
             prediction_summary = {
                 'current_close': current_price,
                 'mean_path': mean_path.tolist(),
@@ -281,14 +444,24 @@ class PredictionService:
                 'exp_ret_30m': float(exp_return),
                 'current_vwap': vwap,
                 'bollinger_bands': bollinger,
+                'sma_5': sma_5,
+                'sma_21': sma_21,
+                'sma_233': sma_233,
+                'sma_5_series': sma_5_series,
+                'sma_21_series': sma_21_series,
+                'sma_233_series': sma_233_series,
                 'n_samples': n_samples,
-                'rth_only': self.rth_only,
+                'rth_only': self.rth_only if asset_type == 'stock' else False,  # RTH only applies to stocks
+                'asset_type': asset_type,
+                'display_name': display_name,
+                'symbol': self.symbol,
+                'model_name': model_name,
                 'data_bars_count': len(context_data),
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(pytz.timezone('US/Eastern')).isoformat()
             }
             
             self.latest_prediction = prediction_summary
-            self.last_update = datetime.now()
+            self.last_update = datetime.now(pytz.timezone('US/Eastern'))
             
             logger.info(f"Prediction generated: P(up)={p_up:.2%}, E[r]={exp_return:.3%}")
             return prediction_summary
@@ -324,11 +497,40 @@ class PredictionService:
             }
         except:
             return None
-    
+
+    def _calculate_sma(self, prices, period):
+        """Calculate Simple Moving Average"""
+        try:
+            if len(prices) < period:
+                return None
+            return np.mean(prices[-period:])
+        except:
+            return None
+
+    def _calculate_sma_series(self, df, period):
+        """Calculate SMA series for entire dataset"""
+        try:
+            closes = df['close'].values
+            sma_values = []
+
+            for i in range(len(closes)):
+                if i < period - 1:
+                    # Not enough data points, use NaN or skip
+                    sma_values.append(None)
+                else:
+                    # Calculate SMA for this point
+                    sma = np.mean(closes[i-period+1:i+1])
+                    sma_values.append(float(sma))
+
+            return sma_values
+        except Exception as e:
+            logger.warning(f"Error calculating SMA series: {e}")
+            return []
+
     def get_historical_data(self):
         """Get cached historical data or fetch new"""
         if not self.latest_historical or self._is_stale():
-            self.fetch_historical_data()
+            self.fetch_historical_data()  # Use dynamic calculation based on timeframe
         return self.latest_historical
     
     def get_latest_prediction(self):
@@ -339,14 +541,14 @@ class PredictionService:
     
     def generate_new_prediction(self):
         """Force generation of new prediction"""
-        self.fetch_historical_data()
+        self.fetch_historical_data()  # Use dynamic calculation based on timeframe
         return self.generate_prediction()
     
     def _is_stale(self, max_age_minutes=5):
         """Check if cached data is stale"""
         if not self.last_update:
             return True
-        age = datetime.now() - self.last_update
+        age = datetime.now(pytz.timezone('US/Eastern')) - self.last_update
         return age.total_seconds() > (max_age_minutes * 60)
 
 # Test the service

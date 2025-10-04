@@ -12,6 +12,12 @@ let socket = null;
 let showPredictions = true;
 let showConfidence = true;
 let showIndicators = true;
+let showSMAs = true;
+let isStreamingActive = false;
+let currentBar = null;
+let barCompletedCount = 0;
+let lastCandleTime = null; // track last bar time (used for internal state)
+const PREDICTION_UPDATE_INTERVAL = 5; // Generate new prediction every 5 bars
 
 // Chart configuration
 const chartOptions = {
@@ -146,9 +152,33 @@ function initChart() {
         lineWidth: 1,
         title: 'BB Lower',
     });
-    
+
+    // Create SMA series
+    indicatorSeries.sma5 = chart.addLineSeries({
+        color: '#FF8C00',
+        lineWidth: 2,
+        title: 'SMA 5',
+    });
+
+    indicatorSeries.sma21 = chart.addLineSeries({
+        color: '#FF0000',
+        lineWidth: 2,
+        title: 'SMA 21',
+    });
+
+    indicatorSeries.sma233 = chart.addLineSeries({
+        color: '#808080',
+        lineWidth: 3,
+        title: 'SMA 233',
+    });
+
     // Fit content
     chart.timeScale().fitContent();
+
+    // Add crosshair move event listener for mouse tracking
+    chart.subscribeCrosshairMove((param) => {
+        handleCrosshairMove(param);
+    });
 }
 
 // Convert data for chart
@@ -172,13 +202,13 @@ function convertToChartData(data, baseDate = null, timeOffset = 0) {
 // Convert candlestick data
 function convertCandlestickData(data) {
     if (!data || !Array.isArray(data)) return [];
-    
+
     return data.map(candle => {
         // Convert timestamp to Unix timestamp (seconds since epoch)
         // The timestamp from server is already in the correct timezone after RTH filtering
         const date = new Date(candle.timestamp);
         const unixTime = Math.floor(date.getTime() / 1000);
-        
+
         return {
             time: unixTime,
             open: parseFloat(candle.open),
@@ -187,6 +217,29 @@ function convertCandlestickData(data) {
             close: parseFloat(candle.close)
         };
     });
+}
+
+// Convert SMA data to chart format
+function convertSmaToChartData(smaValues, historicalData) {
+    if (!smaValues || !Array.isArray(smaValues) || !historicalData || !Array.isArray(historicalData)) {
+        return [];
+    }
+
+    const chartData = [];
+    for (let i = 0; i < Math.min(smaValues.length, historicalData.length); i++) {
+        const smaValue = smaValues[i];
+        if (smaValue !== null && smaValue !== undefined && !isNaN(smaValue)) {
+            const date = new Date(historicalData[i].timestamp);
+            const unixTime = Math.floor(date.getTime() / 1000);
+
+            chartData.push({
+                time: unixTime,
+                value: parseFloat(smaValue)
+            });
+        }
+    }
+
+    return chartData;
 }
 
 // Update chart with new data
@@ -198,12 +251,24 @@ function updateChart(data) {
     // Update historical candlestick data
     if (data.historical && data.historical.length > 0) {
         const candleData = convertCandlestickData(data.historical);
+
+        // Clear and repopulate barBoundaries with historical data to prevent duplicates
+        barBoundaries.clear();
+        candleData.forEach(candle => {
+            barBoundaries.add(candle.time);
+        });
+
         console.log('Setting candlestick data:', candleData.slice(0, 5)); // Log first 5 for debugging
+        console.log('Initialized barBoundaries with', barBoundaries.size, 'historical bars');
+
         candlestickSeries.setData(candleData);
+        // Track last candle time for polling logic
+        lastCandleTime = candleData[candleData.length - 1]?.time || lastCandleTime;
     }
     
     // Update prediction data - note: the structure is data.prediction, not data.prediction.summary
     if (data.prediction) {
+        console.log('Prediction data received:', !!data.prediction.mean_path, 'Mean path length:', data.prediction.mean_path?.length);
         const summary = data.prediction; // The prediction IS the summary
         const lastCandle = data.historical ? data.historical[data.historical.length - 1] : null;
         const baseDate = lastCandle ? new Date(lastCandle.timestamp) : new Date();
@@ -214,6 +279,12 @@ function updateChart(data) {
             const predictionData = convertToChartData(summary.mean_path, baseDate, timeOffset);
             console.log('Setting prediction data:', predictionData.slice(0, 5));
             predictionLineSeries.setData(predictionData);
+
+            // Ensure prediction line is visible
+            predictionLineSeries.applyOptions({
+                visible: showPredictions
+            });
+            console.log('Prediction line visibility set to:', showPredictions);
         }
         
         // Update confidence bands
@@ -227,6 +298,12 @@ function updateChart(data) {
             confidenceBandSeries.p75.setData(p75Data);
             confidenceBandSeries.p25.setData(p25Data);
             confidenceBandSeries.p10.setData(p10Data);
+
+            // Ensure confidence bands are visible
+            Object.values(confidenceBandSeries).forEach(series => {
+                series.applyOptions({ visible: showConfidence });
+            });
+            console.log('Confidence bands visibility set to:', showConfidence);
         }
         
         // Update indicators (draw as horizontal lines across the prediction period)
@@ -264,9 +341,50 @@ function updateChart(data) {
             indicatorSeries.bbMiddle.setData(bbMiddleData);
             indicatorSeries.bbLower.setData(bbLowerData);
         }
-        
+
+        // Update SMA data
+        if (data.historical && data.historical.length > 0 && summary.sma_5_series) {
+            console.log('SMA data received:', {
+                sma5_length: summary.sma_5_series?.length,
+                sma21_length: summary.sma_21_series?.length,
+                sma233_length: summary.sma_233_series?.length,
+                historical_length: data.historical.length
+            });
+
+            const sma5Data = convertSmaToChartData(summary.sma_5_series, data.historical);
+            const sma21Data = convertSmaToChartData(summary.sma_21_series, data.historical);
+            const sma233Data = convertSmaToChartData(summary.sma_233_series, data.historical);
+
+            console.log('Converted SMA data:', {
+                sma5_points: sma5Data.length,
+                sma21_points: sma21Data.length,
+                sma233_points: sma233Data.length
+            });
+
+            indicatorSeries.sma5.setData(sma5Data);
+            indicatorSeries.sma21.setData(sma21Data);
+            indicatorSeries.sma233.setData(sma233Data);
+
+            console.log('SMA data set to chart series');
+        } else {
+            console.log('SMA data not available:', {
+                has_historical: !!data.historical,
+                historical_length: data.historical?.length,
+                has_sma5: !!summary.sma_5_series,
+                summary_keys: Object.keys(summary)
+            });
+        }
+
         // Update statistics panel
         updateStatsPanel(summary);
+
+        // Update price overlay with latest bar data
+        if (data.historical && data.historical.length > 0) {
+            const latestBar = data.historical[data.historical.length - 1];
+            updatePriceOverlay(latestBar);
+            // Store latest bar data for crosshair fallback
+            lastBarData = latestBar;
+        }
     }
 }
 
@@ -311,12 +429,19 @@ function updateStatsPanel(summary) {
         document.getElementById('bb-lower').textContent = `$${summary.bollinger_bands.lower.toFixed(2)}`;
     }
     
-    // Update RTH status and data info
-    if (summary.rth_only !== undefined) {
-        document.getElementById('rth-status').textContent = 
-            summary.rth_only ? 'RTH Only (9:30-4:00 ET)' : 'All Hours (24/7)';
-        document.getElementById('rth-status').className = 
-            summary.rth_only ? 'value positive' : 'value';
+    // Update RTH status and data info based on asset type
+    const assetType = summary.asset_type || 'stock';
+    if (assetType === 'crypto') {
+        document.getElementById('rth-status').textContent = '24/7 Trading';
+        document.getElementById('rth-status').className = 'value positive';
+    } else {
+        // For stocks
+        if (summary.rth_only !== undefined) {
+            document.getElementById('rth-status').textContent = 
+                summary.rth_only ? 'RTH Only (9:30-4:00 ET)' : 'All Hours (24/7)';
+            document.getElementById('rth-status').className = 
+                summary.rth_only ? 'value positive' : 'value';
+        }
     }
     
     if (summary.data_bars_count !== undefined) {
@@ -325,6 +450,10 @@ function updateStatsPanel(summary) {
     
     if (summary.n_samples !== undefined) {
         document.getElementById('n-samples').textContent = summary.n_samples;
+    }
+
+    if (summary.model_name !== undefined) {
+        document.getElementById('model-name').textContent = summary.model_name;
     }
     
     // Update last update time - use prediction timestamp if available
@@ -350,6 +479,61 @@ function updateStatsPanel(summary) {
     document.getElementById('last-update').textContent = updateTimeText;
 }
 
+// Update price overlay with OHLC data
+function updatePriceOverlay(barData) {
+    if (!barData) return;
+
+    // Format prices to 2 decimal places
+    const formatPrice = (price) => {
+        return typeof price === 'number' ? price.toFixed(2) : '--';
+    };
+
+    // Update OHLC values
+    document.getElementById('overlay-open').textContent = formatPrice(barData.open);
+    document.getElementById('overlay-high').textContent = formatPrice(barData.high);
+    document.getElementById('overlay-low').textContent = formatPrice(barData.low);
+    document.getElementById('overlay-close').textContent = formatPrice(barData.close);
+}
+
+// Update ticker symbol in overlay
+function updateTickerSymbol(symbol) {
+    const tickerElement = document.getElementById('ticker-symbol');
+    if (tickerElement) {
+        tickerElement.textContent = symbol.toUpperCase();
+    }
+}
+
+// Handle crosshair movement for mouse tracking
+let lastBarData = null; // Store the latest bar data for fallback
+
+function handleCrosshairMove(param) {
+    // If no valid data point or mouse is outside chart area
+    if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
+        // Fallback to latest bar data when mouse leaves chart
+        if (lastBarData) {
+            updatePriceOverlay(lastBarData);
+        }
+        return;
+    }
+
+    // Get the OHLC data for the candlestick series at the crosshair position
+    const candleData = param.seriesData?.get(candlestickSeries);
+
+    if (candleData) {
+        // Convert the candlestick data to the format expected by updatePriceOverlay
+        const barData = {
+            open: candleData.open,
+            high: candleData.high,
+            low: candleData.low,
+            close: candleData.close,
+            timestamp: new Date(param.time * 1000).toISOString() // Convert Unix timestamp back to ISO string
+        };
+
+        // Update the price overlay with the hovered bar's data
+        updatePriceOverlay(barData);
+    }
+}
+
 // Toggle visibility functions
 function togglePredictions() {
     showPredictions = !showPredictions;
@@ -367,35 +551,346 @@ function toggleConfidenceBands() {
 
 function toggleIndicators() {
     showIndicators = !showIndicators;
-    Object.values(indicatorSeries).forEach(series => {
-        series.applyOptions({ visible: showIndicators });
+    // Toggle only VWAP and Bollinger Bands, not SMAs
+    ['vwap', 'bbUpper', 'bbMiddle', 'bbLower'].forEach(key => {
+        if (indicatorSeries[key]) {
+            indicatorSeries[key].applyOptions({ visible: showIndicators });
+        }
+    });
+}
+
+function toggleSMAs() {
+    showSMAs = !showSMAs;
+    // Toggle only SMA series
+    ['sma5', 'sma21', 'sma233'].forEach(key => {
+        if (indicatorSeries[key]) {
+            indicatorSeries[key].applyOptions({ visible: showSMAs });
+        }
     });
 }
 
 // Initialize WebSocket connection
 function initWebSocket() {
-    socket = io();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
     
-    socket.on('connect', () => {
+    socket = new WebSocket(wsUrl);
+    
+    socket.onopen = () => {
         console.log('Connected to prediction server');
         document.getElementById('connection-status').textContent = '● Connected';
         document.getElementById('connection-status').className = 'status connected';
-    });
+    };
     
-    socket.on('disconnect', () => {
+    socket.onclose = () => {
         console.log('Disconnected from prediction server');
         document.getElementById('connection-status').textContent = '● Disconnected';
         document.getElementById('connection-status').className = 'status disconnected';
+        isStreamingActive = false;
+        // Streaming only; no REST polling fallback
+        
+        // Attempt to reconnect after 5 seconds
+        setTimeout(() => {
+            console.log('Attempting to reconnect...');
+            initWebSocket();
+        }, 5000);
+    };
+    
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const messageType = data.type;
+        
+        switch (messageType) {
+            case 'connected':
+                console.log('WebSocket connected:', data.message);
+                break;
+                
+            case 'prediction_update':
+                console.log('Received prediction update', data);
+                updateChart(data);
+                break;
+                
+            case 'bar_update':
+                console.log('Bar update:', data);
+                updateCurrentBar(data);
+                break;
+                
+            case 'bar_complete':
+                console.log('Bar completed:', data);
+                addCompletedBar(data);
+                
+                // Generate new prediction every N bars
+                barCompletedCount++;
+                if (barCompletedCount % PREDICTION_UPDATE_INTERVAL === 0) {
+                    console.log(`Generating new prediction after ${barCompletedCount} bars`);
+                    refreshData();
+                }
+                break;
+                
+            case 'stream_status':
+                console.log('Stream status:', data);
+                isStreamingActive = data.connected;
+                updateStreamStatus(data.connected);
+                // Streaming only; no REST polling fallback
+                break;
+                
+            case 'stream_started':
+                console.log('Stream started:', data);
+                isStreamingActive = true;
+                updateStreamStatus(true);
+                // Streaming only; no REST polling fallback
+                break;
+                
+            case 'stream_stopped':
+                console.log('Stream stopped:', data);
+                isStreamingActive = false;
+                break;
+                
+            case 'stream_error':
+                console.warn('Stream error:', data);
+                
+                // Show user-friendly message for crypto limitations with fallback info
+                if (data.fallback) {
+                    // Handle fallback scenarios (timeout, auth errors, etc.)
+                    document.getElementById('stream-status').innerHTML = 
+                        '⚠️ Real-time crypto unavailable on current data feed - Using historical data only';
+                    document.getElementById('stream-status').className = 'stream-status warning';
+                    
+                    // Show temporary notification
+                    showNotification('Crypto streaming issue - switched to historical data mode', 'warning', 5000);
+                } else {
+                    // Generic stream error
+                    document.getElementById('stream-status').innerHTML = 
+                        '⚠️ Stream connection issue';
+                    document.getElementById('stream-status').className = 'stream-status error';
+                }
+                break;
+                
+            case 'stream_info':
+                console.info('Stream info:', data);
+                if (data.mode === 'historical_primary') {
+                    document.getElementById('stream-status').innerHTML = 
+                        '📊 Historical Data Mode';
+                    document.getElementById('stream-status').className = 'stream-status historical';
+                    showNotification(data.info, 'info', 4000);
+                }
+                break;
+                
+            case 'error':
+                console.error('WebSocket error:', data.message);
+                break;
+                
+            default:
+                console.log('Unknown message type:', messageType, data);
+        }
+    };
+    
+    socket.onerror = (error) => {
+        console.error('WebSocket connection error:', error);
+        updateStreamStatus('Connection Error', false);
+    };
+}
+
+// Update current bar in real-time
+function updateCurrentBar(barData) {
+    if (!candlestickSeries) return;
+
+    // Convert timestamp to Unix time and bucket to 1-minute granularity
+    const unixTime = Math.floor(new Date(barData.timestamp).getTime() / 1000);
+    const minuteTime = Math.floor(unixTime / 60) * 60;
+
+    // Update or create current bar
+    const bar = {
+        time: minuteTime,
+        open: barData.open,
+        high: barData.high,
+        low: barData.low,
+        close: barData.close
+    };
+
+    // Update the last bar in the series
+    candlestickSeries.update(bar);
+
+    // Update price overlay with current bar data
+    updatePriceOverlay(barData);
+
+    // Store latest bar data for crosshair fallback
+    lastBarData = barData;
+
+    // Store current bar for reference
+    currentBar = bar;
+    lastCandleTime = Math.max(lastCandleTime || 0, bar.time);
+}
+
+// Track bar boundaries to prevent duplicate updates
+let barBoundaries = new Set();
+
+// Add completed bar to chart
+function addCompletedBar(barData) {
+    if (!candlestickSeries) return;
+
+    // Convert timestamp to Unix time and bucket to 1-minute granularity
+    const unixTime = Math.floor(new Date(barData.timestamp).getTime() / 1000);
+    const minuteTime = Math.floor(unixTime / 60) * 60;
+
+    // Check if this is actually a new minute or update to existing
+    const isNewMinute = !barBoundaries.has(minuteTime);
+
+    const bar = {
+        time: minuteTime,
+        open: barData.open,
+        high: barData.high,
+        low: barData.low,
+        close: barData.close
+    };
+
+    if (isNewMinute) {
+        // New bar - add to series and track it
+        candlestickSeries.update(bar);
+        barBoundaries.add(minuteTime);
+        console.log('Added new bar at:', new Date(minuteTime * 1000).toISOString());
+
+        // Keep only last 1000 bars in memory for performance
+        if (barBoundaries.size > 1000) {
+            const oldestTime = Math.min(...barBoundaries);
+            barBoundaries.delete(oldestTime);
+        }
+    } else {
+        // Update existing bar with new data
+        candlestickSeries.update(bar);
+        console.log('Updated existing bar at:', new Date(minuteTime * 1000).toISOString());
+    }
+
+    // Update price overlay with completed bar data
+    updatePriceOverlay(barData);
+
+    // Store latest bar data for crosshair fallback
+    lastBarData = barData;
+
+    // Reset current bar tracking
+    currentBar = null;
+    lastCandleTime = bar.time;
+}
+
+// Update stream status indicator
+function updateStreamStatus(isConnected) {
+    const statusElement = document.getElementById('stream-status');
+    if (statusElement) {
+        if (isConnected) {
+            statusElement.textContent = '🔴 LIVE';
+            statusElement.className = 'stream-status live';
+        } else {
+            statusElement.textContent = '';
+            statusElement.className = 'stream-status';
+        }
+    }
+}
+
+// No REST polling fallback; WebSocket streaming only
+
+// Show notification to user
+function showNotification(message, type = 'info', duration = 3000) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    // Style the notification
+    Object.assign(notification.style, {
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        padding: '12px 20px',
+        borderRadius: '4px',
+        color: 'white',
+        fontWeight: 'bold',
+        zIndex: '1000',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+        opacity: '0',
+        transform: 'translateX(100%)',
+        transition: 'all 0.3s ease'
     });
     
-    socket.on('prediction_update', (data) => {
-        console.log('Received prediction update', data);
-        updateChart(data);
-    });
+    // Set background color based on type
+    switch (type) {
+        case 'warning':
+            notification.style.backgroundColor = '#f59e0b';
+            break;
+        case 'error':
+            notification.style.backgroundColor = '#ef4444';
+            break;
+        case 'success':
+            notification.style.backgroundColor = '#10b981';
+            break;
+        default:
+            notification.style.backgroundColor = '#3b82f6';
+    }
     
-    socket.on('error', (error) => {
-        console.error('WebSocket error:', error);
-    });
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateX(0)';
+    }, 10);
+    
+    // Remove after duration
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, duration);
+}
+
+// Start real-time streaming
+async function startStreaming() {
+    const ticker = document.getElementById('ticker-select').value;
+    const timeframe = document.getElementById('timeframe-select').value;
+    
+    try {
+        const response = await fetch('/api/start_stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: ticker,
+                timeframe: timeframe + 'Min'
+            })
+        });
+        
+        const result = await response.json();
+        console.log('Stream started:', result);
+        isStreamingActive = true;
+        
+    } catch (error) {
+        console.error('Failed to start stream:', error);
+    }
+}
+
+// Stop real-time streaming
+async function stopStreaming() {
+    try {
+        const response = await fetch('/api/stop_stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        console.log('Stream stopped:', result);
+        isStreamingActive = false;
+        updateStreamStatus(false);
+        
+    } catch (error) {
+        console.error('Failed to stop stream:', error);
+    }
 }
 
 // Load initial data
@@ -433,9 +928,11 @@ async function refreshData() {
         
         updateChart(data);
         
-        // Also emit via WebSocket to update other connected clients
-        if (socket && socket.connected) {
-            socket.emit('request_update');
+        // Also send via WebSocket to update other connected clients
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'request_update'
+            }));
         }
     } catch (error) {
         console.error('Failed to refresh data:', error);
@@ -450,37 +947,67 @@ function handleTimeframeChange() {
     const timeframe = document.getElementById('timeframe-select').value;
     console.log('Timeframe changed to:', timeframe);
     
-    // Emit settings change to server
-    if (socket && socket.connected) {
-        socket.emit('settings_changed', {
+    // Send settings change to server
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'settings_changed',
             timeframe: timeframe,
-            type: 'timeframe'
-        });
+            changeType: 'timeframe'
+        }));
     }
 }
 
 // Handle ticker changes
-function handleTickerChange() {
+async function handleTickerChange() {
     const ticker = document.getElementById('ticker-select').value;
     console.log('Ticker changed to:', ticker);
     
+    // Stop current stream if active
+    if (isStreamingActive) {
+        await stopStreaming();
+    }
+    
+    // Get friendly display name
+    const displayName = getFriendlyName(ticker);
+    
     // Update the header title
     const headerTitle = document.querySelector('.header h1');
-    headerTitle.textContent = `🚀 Kronos ${ticker} Prediction`;
-    
-    // Emit settings change to server
-    if (socket && socket.connected) {
-        socket.emit('settings_changed', {
+    headerTitle.textContent = `🚀 Kronos ${displayName} Prediction`;
+
+    // Update ticker symbol in price overlay
+    updateTickerSymbol(ticker);
+
+    // Send settings change to server
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'settings_changed',
             ticker: ticker,
-            type: 'ticker'
-        });
+            changeType: 'ticker'
+        }));
     }
+    
+    // Start new stream for new ticker
+    setTimeout(() => startStreaming(), 1000);
+}
+
+// Get friendly display name for ticker
+function getFriendlyName(ticker) {
+    const cryptoNames = {
+        'BTC/USD': 'Bitcoin',
+        'ETH/USD': 'Ethereum', 
+        'LTC/USD': 'Litecoin',
+        'DOGE/USD': 'Dogecoin'
+    };
+    
+    return cryptoNames[ticker] || ticker;
 }
 
 // Handle periodic data checks (can be called by timer if needed)
 function checkForNewData() {
-    if (socket && socket.connected) {
-        socket.emit('check_for_new_data');
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'check_for_new_data'
+        }));
     }
 }
 
@@ -506,11 +1033,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load initial data
     loadInitialData();
     
+    // Start streaming after initial load
+    setTimeout(() => startStreaming(), 2000);
+    
     // Setup event listeners
     document.getElementById('refresh-btn').addEventListener('click', refreshData);
     document.getElementById('toggle-predictions').addEventListener('click', togglePredictions);
     document.getElementById('toggle-confidence').addEventListener('click', toggleConfidenceBands);
     document.getElementById('toggle-indicators').addEventListener('click', toggleIndicators);
+    document.getElementById('toggle-sma').addEventListener('click', toggleSMAs);
     document.getElementById('timeframe-select').addEventListener('change', handleTimeframeChange);
     document.getElementById('ticker-select').addEventListener('change', handleTickerChange);
     

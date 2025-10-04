@@ -8,11 +8,9 @@
     <!-- TradingView Lightweight Charts -->
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     
-    <!-- Socket.IO for WebSocket -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
@@ -20,6 +18,7 @@
         <div class="header">
             <h1>🚀 Kronos QQQ Prediction</h1>
             <div class="status-bar">
+                <span id="stream-status" class="stream-status"></span>
                 <span id="connection-status" class="status disconnected">● Disconnected</span>
                 <span id="last-update">Last Update: --</span>
                 <span id="timezone-info" class="timezone-info"></span>
@@ -32,6 +31,16 @@
             <!-- Chart Container -->
             <div class="chart-container">
                 <div id="chart"></div>
+                <!-- Price Overlay -->
+                <div class="price-overlay">
+                    <div class="ticker-symbol" id="ticker-symbol">QQQ</div>
+                    <div class="ohlc-prices">
+                        <span class="price-item">O: <span id="overlay-open">--</span></span>
+                        <span class="price-item">H: <span id="overlay-high">--</span></span>
+                        <span class="price-item">L: <span id="overlay-low">--</span></span>
+                        <span class="price-item">C: <span id="overlay-close">--</span></span>
+                    </div>
+                </div>
             </div>
 
             <!-- Stats Panel -->
@@ -107,7 +116,7 @@
                 <div class="stat-group">
                     <div class="stat-item">
                         <label>Model:</label>
-                        <span class="value">Kronos-small</span>
+                        <span id="model-name" class="value">--</span>
                     </div>
                     <div class="stat-item">
                         <label>Samples:</label>
@@ -132,12 +141,22 @@
         <!-- Controls -->
         <div class="controls">
             <select id="ticker-select">
-                <option value="QQQ" selected>QQQ</option>
-                <option value="SPY">SPY</option>
-                <option value="AAPL">AAPL</option>
-                <option value="TSLA">TSLA</option>
-                <option value="MSFT">MSFT</option>
-                <option value="NVDA">NVDA</option>
+                <optgroup label="Stocks">
+                    <option value="QQQ" selected>QQQ</option>
+                    <option value="SPY">SPY</option>
+                    <option value="AAPL">AAPL</option>
+                    <option value="TSLA">TSLA</option>
+                    <option value="MSFT">MSFT</option>
+                    <option value="NVDA">NVDA</option>
+                    <option value="META">META</option>
+                    <option value="BABA">BABA</option>
+                </optgroup>
+                <optgroup label="Crypto">
+                    <option value="BTC/USD">Bitcoin (BTC/USD)</option>
+                    <option value="ETH/USD">Ethereum (ETH/USD)</option>
+                    <option value="LTC/USD">Litecoin (LTC/USD)</option>
+                    <option value="DOGE/USD">Dogecoin (DOGE/USD)</option>
+                </optgroup>
             </select>
             <select id="timeframe-select">
                 <option value="1" selected>1 min</option>
@@ -148,6 +167,7 @@
             <button id="toggle-predictions" class="btn">Toggle Predictions</button>
             <button id="toggle-confidence" class="btn">Toggle Confidence Bands</button>
             <button id="toggle-indicators" class="btn">Toggle Indicators</button>
+            <button id="toggle-sma" class="btn">Toggle SMAs</button>
         </div>
 
         <!-- Footer -->
@@ -157,6 +177,6 @@
     </div>
 
     <!-- Custom JavaScript -->
-    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+    <script src="/static/js/chart.js"></script>
 </body>
 </html>
