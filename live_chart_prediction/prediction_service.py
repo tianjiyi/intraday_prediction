@@ -38,6 +38,7 @@ class PredictionService:
     def __init__(self, config_path="../config.yaml"):
         """Initialize the prediction service"""
         self.config = self._load_config(config_path)
+        self.config_dir = os.path.dirname(os.path.abspath(config_path))  # Store config directory
         self.symbol = self.config['symbol']
         self.timeframe = TimeFrame.Minute  # Default timeframe
         
@@ -105,11 +106,24 @@ class PredictionService:
     def _init_model(self):
         """Initialize Kronos model and tokenizer"""
         try:
-            # Load tokenizer from pretrained
-            self.tokenizer = KronosTokenizer.from_pretrained(self.config['model']['tokenizer'])
-            
-            # Load model from pretrained
-            self.model = Kronos.from_pretrained(self.config['model']['checkpoint'])
+            # Convert relative paths to absolute paths for local models
+            # Relative paths are resolved relative to config.yaml location
+            tokenizer_path = self.config['model']['tokenizer']
+            if tokenizer_path.startswith('./') or tokenizer_path.startswith('../'):
+                tokenizer_path = os.path.abspath(os.path.join(self.config_dir, tokenizer_path))
+
+            checkpoint_path = self.config['model']['checkpoint']
+            if checkpoint_path.startswith('./') or checkpoint_path.startswith('../'):
+                checkpoint_path = os.path.abspath(os.path.join(self.config_dir, checkpoint_path))
+
+            logger.info(f"Loading tokenizer from: {tokenizer_path}")
+            logger.info(f"Loading model from: {checkpoint_path}")
+
+            # Load tokenizer from pretrained (HuggingFace or local)
+            self.tokenizer = KronosTokenizer.from_pretrained(tokenizer_path)
+
+            # Load model from pretrained (HuggingFace or local)
+            self.model = Kronos.from_pretrained(checkpoint_path)
             
             # Create predictor
             self.predictor = KronosPredictor(
@@ -165,6 +179,55 @@ class PredictionService:
 
         return days_to_fetch
 
+    def _get_market_aware_end_time(self, timezone):
+        """
+        Get appropriate end time for data fetching.
+        - During market hours: use current time
+        - Outside market hours: use last market close (4:00 PM ET)
+        - Weekends: use previous Friday 4:00 PM ET
+
+        Args:
+            timezone: pytz timezone object (US/Eastern)
+
+        Returns:
+            Timezone-aware datetime representing the appropriate end time
+        """
+        now = datetime.now(timezone)
+
+        # Market hours: Mon-Fri 9:30 AM - 4:00 PM ET
+        is_weekend = now.weekday() >= 5  # Sat=5, Sun=6
+
+        if is_weekend:
+            # Go back to Friday
+            days_back = now.weekday() - 4  # Sat=1 day, Sun=2 days
+            last_friday = now - timedelta(days=days_back)
+            end_time = last_friday.replace(hour=16, minute=0, second=0, microsecond=0)
+            logger.info(f"Weekend detected - using last Friday market close: {end_time.strftime('%Y-%m-%d %H:%M %Z')}")
+            return end_time
+
+        # Weekday - check if market is open
+        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+
+        if now < market_open:
+            # Before market opens - use previous day's close
+            prev_day = now - timedelta(days=1)
+            # Check if previous day was weekend
+            if prev_day.weekday() >= 5:
+                days_back = prev_day.weekday() - 4
+                prev_day = prev_day - timedelta(days=days_back)
+            end_time = prev_day.replace(hour=16, minute=0, second=0, microsecond=0)
+            logger.info(f"Before market open - using previous close: {end_time.strftime('%Y-%m-%d %H:%M %Z')}")
+            return end_time
+        elif now > market_close:
+            # After market closes - use today's close
+            logger.info(f"After market close - using today's close: {market_close.strftime('%Y-%m-%d %H:%M %Z')}")
+            return market_close
+        else:
+            # During market hours - use current time
+            logger.info(f"Market open - using current time: {now.strftime('%Y-%m-%d %H:%M %Z')}")
+            return now
+
     def update_settings(self, symbol=None, timeframe_minutes=None):
         """Update service settings"""
         if symbol:
@@ -204,7 +267,7 @@ class PredictionService:
             # Use timezone-aware datetime for proper market data fetching
             # Alpaca expects UTC or market timezone (Eastern)
             eastern = pytz.timezone('US/Eastern')
-            end_time = datetime.now(eastern)
+            end_time = self._get_market_aware_end_time(eastern)
             start_time = end_time - timedelta(days=days)
 
             # Log the date range being fetched
@@ -293,8 +356,13 @@ class PredictionService:
             return None
 
     
-    def generate_prediction(self, n_samples=10):
-        """Generate prediction using Kronos model"""
+    def _get_pandas_freq(self):
+        """Get pandas frequency string from current timeframe"""
+        minutes = self._get_timeframe_minutes()
+        return f'{minutes}min'
+
+    def generate_prediction(self, n_samples=25):
+        """Generate prediction using Kronos model with sequential batch Monte Carlo sampling"""
         try:
             logger.info(f"Starting prediction generation for {self.symbol} with {n_samples} samples")
             if not self.latest_historical:
@@ -321,47 +389,51 @@ class PredictionService:
             context_df = pd.DataFrame(data_for_kronos)
             context_df['amount'] = context_df['volume'] * context_df['close']  # Kronos expects amount column
             
-            # Create timestamps
-            x_timestamp = pd.Series([pd.Timestamp(bar['timestamp']) for bar in context_data])
-            
+            # Create timestamps - normalize to UTC and make timezone-naive for Kronos
+            # Kronos's calc_time_stamps() uses .dt accessor which requires datetime64 dtype
+            # Using utc=True ensures consistent handling of DST transitions across long time ranges
+            raw_timestamps = [bar['timestamp'] for bar in context_data]
+            x_timestamp = pd.to_datetime(raw_timestamps, utc=True).tz_localize(None)
+            x_timestamp = pd.Series(x_timestamp)
+
             # Generate future timestamps for prediction
             last_timestamp = x_timestamp.iloc[-1]
+            freq = self._get_pandas_freq()
             y_timestamp = pd.Series(pd.date_range(
-                start=last_timestamp + pd.Timedelta(minutes=1),
+                start=last_timestamp + pd.Timedelta(minutes=self._get_timeframe_minutes()),
                 periods=self.config['data']['horizon'],
-                freq='1min'
+                freq=freq
             ))
             
-            # Generate predictions using Kronos predictor
-            logger.info(f"Generating {n_samples} prediction samples...")
-            
-            # For simplicity, generate one prediction with moderate sample_count
-            # This is more efficient than generating many individual predictions
+            # Generate predictions with single Kronos call (all samples in parallel)
+            logger.info(f"Generating {n_samples} Monte Carlo samples...")
+
+            # Single GPU call with all samples
             pred_df = self.predictor.predict(
                 df=context_df,
                 x_timestamp=x_timestamp,
                 y_timestamp=y_timestamp,
                 pred_len=self.config['data']['horizon'],
-                sample_count=5,  # Lower for faster response
+                sample_count=n_samples,  # All samples in one call (e.g., 25)
                 T=self.config['sampling']['temperature'],
-                top_p=self.config['sampling']['top_p']
+                top_p=self.config['sampling']['top_p'],
+                return_samples=True
             )
-            
-            # Extract close prices from prediction
-            predictions = pred_df['close'].values
-            
-            # To simulate multiple samples, add some noise to the mean prediction
-            # This is a simplification since we can't get individual samples easily
-            mean_pred = predictions
-            std_dev = np.std(mean_pred) * 0.1  # Small variation
-            
-            all_predictions = []
-            for _ in range(n_samples):
-                noise = np.random.normal(0, std_dev, len(mean_pred))
-                sample = mean_pred + noise
-                all_predictions.append(sample)
-            
+
+            # Extract all predictions from single response
+            # Handle different return formats from Kronos
+            if isinstance(pred_df, dict):
+                # If dict with 'samples' key
+                all_predictions = [sample['close'].values for sample in pred_df.get('samples', [pred_df])]
+            elif 'close' in pred_df.columns:
+                # Fallback: single averaged prediction (shouldn't occur when return_samples=True)
+                all_predictions = [pred_df['close'].values] * n_samples
+            else:
+                # Fallback
+                all_predictions = [pred_df['close'].values] * n_samples
+
             predictions = np.array(all_predictions)
+            logger.info(f"Generated predictions with shape: {predictions.shape}")
             
             # Calculate statistics
             current_price = context_df['close'].iloc[-1]
@@ -455,6 +527,7 @@ class PredictionService:
                 'asset_type': asset_type,
                 'display_name': display_name,
                 'symbol': self.symbol,
+                'timeframe_minutes': self._get_timeframe_minutes(),
                 'model_name': model_name,
                 'data_bars_count': len(context_data),
                 'timestamp': datetime.now(pytz.timezone('US/Eastern')).isoformat()

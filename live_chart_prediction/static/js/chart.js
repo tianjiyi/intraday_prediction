@@ -18,6 +18,8 @@ let currentBar = null;
 let barCompletedCount = 0;
 let lastCandleTime = null; // track last bar time (used for internal state)
 const PREDICTION_UPDATE_INTERVAL = 5; // Generate new prediction every 5 bars
+let currentTimeframe = 1; // Current timeframe in minutes
+let aggregatedBar = null; // Track current aggregated bar for multi-minute timeframes
 
 // Chart configuration
 const chartOptions = {
@@ -189,7 +191,8 @@ function convertToChartData(data, baseDate = null, timeOffset = 0) {
     
     return data.map((value, index) => {
         const date = new Date(startDate);
-        date.setMinutes(date.getMinutes() + (index + timeOffset));
+        // Use currentTimeframe for spacing points
+        date.setMinutes(date.getMinutes() + ((index + timeOffset) * currentTimeframe));
         const unixTime = Math.floor(date.getTime() / 1000);
         
         return {
@@ -199,47 +202,80 @@ function convertToChartData(data, baseDate = null, timeOffset = 0) {
     });
 }
 
-// Convert candlestick data
+// Convert candlestick data with proper OHLC aggregation for timeframe buckets
 function convertCandlestickData(data) {
     if (!data || !Array.isArray(data)) return [];
 
-    return data.map(candle => {
-        // Convert timestamp to Unix timestamp (seconds since epoch)
-        // The timestamp from server is already in the correct timezone after RTH filtering
+    const timeframeSeconds = currentTimeframe * 60;
+    const buckets = new Map();
+
+    // Debug: log first 3 raw timestamps and timeframe info
+    console.log(`Converting ${data.length} bars with timeframe=${currentTimeframe}min (${timeframeSeconds}s)`);
+    console.log('Raw timestamps (first 3):', data.slice(0, 3).map(c => c.timestamp));
+
+    // Group bars by bucketed time and aggregate OHLC properly
+    data.forEach((candle, idx) => {
         const date = new Date(candle.timestamp);
         const unixTime = Math.floor(date.getTime() / 1000);
+        // Snap to nearest bucket (floor)
+        const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
 
-        return {
-            time: unixTime,
-            open: parseFloat(candle.open),
-            high: parseFloat(candle.high),
-            low: parseFloat(candle.low),
-            close: parseFloat(candle.close)
-        };
+        // Debug: log first 3 conversions
+        if (idx < 3) {
+            console.log(`Bar ${idx}: "${candle.timestamp}" -> Unix: ${unixTime} -> Bucket: ${bucketedTime} (${new Date(bucketedTime * 1000).toISOString()})`);
+        }
+
+        if (!buckets.has(bucketedTime)) {
+            // First bar in this bucket - initialize with its values
+            buckets.set(bucketedTime, {
+                time: bucketedTime,
+                open: parseFloat(candle.open),
+                high: parseFloat(candle.high),
+                low: parseFloat(candle.low),
+                close: parseFloat(candle.close)
+            });
+        } else {
+            // Aggregate with existing bar in bucket
+            const existing = buckets.get(bucketedTime);
+            existing.high = Math.max(existing.high, parseFloat(candle.high));
+            existing.low = Math.min(existing.low, parseFloat(candle.low));
+            existing.close = parseFloat(candle.close); // Last close wins
+        }
     });
+
+    // Debug: log conversion result
+    console.log(`Conversion result: ${data.length} bars -> ${buckets.size} unique buckets`);
+
+    // Convert to sorted array (TradingView requires ascending time order)
+    return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
 }
 
-// Convert SMA data to chart format
+// Convert SMA data to chart format with proper bucket aggregation
 function convertSmaToChartData(smaValues, historicalData) {
     if (!smaValues || !Array.isArray(smaValues) || !historicalData || !Array.isArray(historicalData)) {
         return [];
     }
 
-    const chartData = [];
+    const timeframeSeconds = currentTimeframe * 60;
+    const buckets = new Map();  // bucket timestamp -> last SMA value
+
     for (let i = 0; i < Math.min(smaValues.length, historicalData.length); i++) {
         const smaValue = smaValues[i];
         if (smaValue !== null && smaValue !== undefined && !isNaN(smaValue)) {
             const date = new Date(historicalData[i].timestamp);
             const unixTime = Math.floor(date.getTime() / 1000);
+            // Apply the same snapping logic as candlesticks to ensure alignment
+            const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
 
-            chartData.push({
-                time: unixTime,
-                value: parseFloat(smaValue)
-            });
+            // Use last value in bucket (overwrite) - ensures one point per candlestick
+            buckets.set(bucketedTime, parseFloat(smaValue));
         }
     }
 
-    return chartData;
+    // Convert to sorted array (TradingView requires ascending time order)
+    return Array.from(buckets.entries())
+        .map(([time, value]) => ({ time, value }))
+        .sort((a, b) => a.time - b.time);
 }
 
 // Update chart with new data
@@ -254,6 +290,7 @@ function updateChart(data) {
 
         // Clear and repopulate barBoundaries with historical data to prevent duplicates
         barBoundaries.clear();
+        aggregatedBar = null; // Reset aggregation state
         candleData.forEach(candle => {
             barBoundaries.add(candle.time);
         });
@@ -271,8 +308,23 @@ function updateChart(data) {
         console.log('Prediction data received:', !!data.prediction.mean_path, 'Mean path length:', data.prediction.mean_path?.length);
         const summary = data.prediction; // The prediction IS the summary
         const lastCandle = data.historical ? data.historical[data.historical.length - 1] : null;
-        const baseDate = lastCandle ? new Date(lastCandle.timestamp) : new Date();
-        const timeOffset = 1; // Start predictions 1 minute after last candle
+        
+        let baseDate;
+        if (lastCandle) {
+            // Use the aligned time from the last candle if available
+            // convertCandlestickData converts to unix seconds, so we need to * 1000
+            // But we don't have the converted data here easily without re-converting
+            // So we just align the timestamp again
+            const date = new Date(lastCandle.timestamp);
+            const unixTime = Math.floor(date.getTime() / 1000);
+            const timeframeSeconds = currentTimeframe * 60;
+            const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
+            baseDate = new Date(bucketedTime * 1000);
+        } else {
+            baseDate = new Date();
+        }
+
+        const timeOffset = 1; // Start predictions 1 unit (timeframe) after last candle
         
         // Update mean prediction line
         if (summary.mean_path) {
@@ -311,7 +363,7 @@ function updateChart(data) {
             const vwapData = [];
             for (let i = 0; i <= 30; i++) {
                 const date = new Date(baseDate);
-                date.setMinutes(date.getMinutes() + i);
+                date.setMinutes(date.getMinutes() + (i * currentTimeframe));
                 const unixTime = Math.floor(date.getTime() / 1000);
                 vwapData.push({
                     time: unixTime,
@@ -329,7 +381,7 @@ function updateChart(data) {
             
             for (let i = 0; i <= 30; i++) {
                 const date = new Date(baseDate);
-                date.setMinutes(date.getMinutes() + i);
+                date.setMinutes(date.getMinutes() + (i * currentTimeframe));
                 const unixTime = Math.floor(date.getTime() / 1000);
                 
                 bbUpperData.push({ time: unixTime, value: bb.upper });
@@ -367,12 +419,10 @@ function updateChart(data) {
 
             console.log('SMA data set to chart series');
         } else {
-            console.log('SMA data not available:', {
-                has_historical: !!data.historical,
-                historical_length: data.historical?.length,
-                has_sma5: !!summary.sma_5_series,
-                summary_keys: Object.keys(summary)
-            });
+            console.log('SMA data not available - clearing series');
+            indicatorSeries.sma5.setData([]);
+            indicatorSeries.sma21.setData([]);
+            indicatorSeries.sma233.setData([]);
         }
 
         // Update statistics panel
@@ -695,21 +745,35 @@ function initWebSocket() {
 function updateCurrentBar(barData) {
     if (!candlestickSeries) return;
 
-    // Convert timestamp to Unix time and bucket to 1-minute granularity
+    // Convert timestamp to Unix time and bucket to timeframe granularity
     const unixTime = Math.floor(new Date(barData.timestamp).getTime() / 1000);
-    const minuteTime = Math.floor(unixTime / 60) * 60;
+    const timeframeSeconds = currentTimeframe * 60;
+    const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
 
-    // Update or create current bar
-    const bar = {
-        time: minuteTime,
-        open: barData.open,
-        high: barData.high,
-        low: barData.low,
-        close: barData.close
-    };
+    let displayBar;
+
+    if (aggregatedBar && aggregatedBar.time === bucketedTime) {
+        // Merge current update with existing aggregated data
+        displayBar = {
+            time: bucketedTime,
+            open: aggregatedBar.open,
+            high: Math.max(aggregatedBar.high, barData.high),
+            low: Math.min(aggregatedBar.low, barData.low),
+            close: barData.close
+        };
+    } else {
+        // Start of a new bucket (or no aggregation yet)
+        displayBar = {
+            time: bucketedTime,
+            open: barData.open,
+            high: barData.high,
+            low: barData.low,
+            close: barData.close
+        };
+    }
 
     // Update the last bar in the series
-    candlestickSeries.update(bar);
+    candlestickSeries.update(displayBar);
 
     // Update price overlay with current bar data
     updatePriceOverlay(barData);
@@ -718,8 +782,8 @@ function updateCurrentBar(barData) {
     lastBarData = barData;
 
     // Store current bar for reference
-    currentBar = bar;
-    lastCandleTime = Math.max(lastCandleTime || 0, bar.time);
+    currentBar = displayBar;
+    lastCandleTime = Math.max(lastCandleTime || 0, displayBar.time);
 }
 
 // Track bar boundaries to prevent duplicate updates
@@ -729,26 +793,27 @@ let barBoundaries = new Set();
 function addCompletedBar(barData) {
     if (!candlestickSeries) return;
 
-    // Convert timestamp to Unix time and bucket to 1-minute granularity
+    // Convert timestamp to Unix time and bucket to timeframe granularity
     const unixTime = Math.floor(new Date(barData.timestamp).getTime() / 1000);
-    const minuteTime = Math.floor(unixTime / 60) * 60;
+    const timeframeSeconds = currentTimeframe * 60;
+    const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
 
-    // Check if this is actually a new minute or update to existing
-    const isNewMinute = !barBoundaries.has(minuteTime);
+    // Check if this is actually a new bucket
+    const isNewBucket = !barBoundaries.has(bucketedTime);
 
-    const bar = {
-        time: minuteTime,
-        open: barData.open,
-        high: barData.high,
-        low: barData.low,
-        close: barData.close
-    };
-
-    if (isNewMinute) {
-        // New bar - add to series and track it
-        candlestickSeries.update(bar);
-        barBoundaries.add(minuteTime);
-        console.log('Added new bar at:', new Date(minuteTime * 1000).toISOString());
+    if (isNewBucket) {
+        // New bucket - start new aggregated bar
+        aggregatedBar = {
+            time: bucketedTime,
+            open: barData.open,
+            high: barData.high,
+            low: barData.low,
+            close: barData.close
+        };
+        
+        candlestickSeries.update(aggregatedBar);
+        barBoundaries.add(bucketedTime);
+        console.log('Added new bar at:', new Date(bucketedTime * 1000).toISOString());
 
         // Keep only last 1000 bars in memory for performance
         if (barBoundaries.size > 1000) {
@@ -756,9 +821,25 @@ function addCompletedBar(barData) {
             barBoundaries.delete(oldestTime);
         }
     } else {
-        // Update existing bar with new data
-        candlestickSeries.update(bar);
-        console.log('Updated existing bar at:', new Date(minuteTime * 1000).toISOString());
+        // Update existing aggregated bar
+        if (!aggregatedBar || aggregatedBar.time !== bucketedTime) {
+            // Fallback if aggregatedBar state was lost/reset but boundary exists
+             aggregatedBar = {
+                time: bucketedTime,
+                open: barData.open,
+                high: barData.high,
+                low: barData.low,
+                close: barData.close
+            };
+        } else {
+            // Aggregate data
+            aggregatedBar.high = Math.max(aggregatedBar.high, barData.high);
+            aggregatedBar.low = Math.min(aggregatedBar.low, barData.low);
+            aggregatedBar.close = barData.close;
+        }
+        
+        candlestickSeries.update(aggregatedBar);
+        console.log('Updated existing bar at:', new Date(bucketedTime * 1000).toISOString());
     }
 
     // Update price overlay with completed bar data
@@ -769,7 +850,7 @@ function addCompletedBar(barData) {
 
     // Reset current bar tracking
     currentBar = null;
-    lastCandleTime = bar.time;
+    lastCandleTime = aggregatedBar.time;
 }
 
 // Update stream status indicator
@@ -896,7 +977,11 @@ async function stopStreaming() {
 // Load initial data
 async function loadInitialData() {
     try {
-        const response = await fetch('/api/initial_data');
+        const symbol = document.getElementById('ticker-select').value;
+        const timeframe = document.getElementById('timeframe-select').value;
+        currentTimeframe = parseInt(timeframe);
+        
+        const response = await fetch(`/api/initial_data?symbol=${symbol}&timeframe=${timeframe}`);
         const data = await response.json();
         
         if (data.error) {
@@ -943,11 +1028,15 @@ async function refreshData() {
 }
 
 // Handle timeframe changes
-function handleTimeframeChange() {
+async function handleTimeframeChange() {
     const timeframe = document.getElementById('timeframe-select').value;
     console.log('Timeframe changed to:', timeframe);
-    
-    // Send settings change to server
+    currentTimeframe = parseInt(timeframe);
+
+    // Reload data with new timeframe via HTTP API
+    await loadInitialData();
+
+    // Also notify server via WebSocket for streaming updates
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({
             type: 'settings_changed',
