@@ -140,7 +140,13 @@ class PredictionService:
     
     def _get_timeframe_minutes(self):
         """Extract timeframe in minutes from self.timeframe"""
-        if self.timeframe == TimeFrame.Minute:
+        # Check by string representation for Day/Week (Alpaca SDK comparison workaround)
+        tf_str = str(self.timeframe).lower()
+        if 'day' in tf_str:
+            return 1440  # 24 * 60
+        elif 'week' in tf_str:
+            return 10080  # 7 * 24 * 60
+        elif self.timeframe == TimeFrame.Minute:
             return 1
         elif hasattr(self.timeframe, 'amount'):
             return self.timeframe.amount
@@ -152,7 +158,7 @@ class PredictionService:
         Calculate how many days to fetch to get target number of bars
 
         Args:
-            timeframe_minutes: Timeframe in minutes (1, 5, 15, 30)
+            timeframe_minutes: Timeframe in minutes (1, 5, 15, 30, 1440=Day, 10080=Week)
             target_bars: Target number of bars to fetch (default: from config or 350)
 
         Returns:
@@ -162,6 +168,27 @@ class PredictionService:
         if target_bars is None:
             target_bars = self.config.get('data', {}).get('target_historical_bars', 350)
 
+        # Handle Day and Week timeframes differently
+        if timeframe_minutes == 1440:  # Daily
+            # 1 bar per trading day, ~252 trading days per year
+            # Need ~350 trading days = ~500 calendar days (~1.4 years)
+            days_needed = target_bars  # 1 bar per day
+            days_with_buffer = int(days_needed * 1.5) + 1  # Account for weekends/holidays
+            days_to_fetch = min(days_with_buffer, 730)  # Cap at 2 years
+            logger.info(f"Timeframe: Day, Target bars: {target_bars}, "
+                       f"Days to fetch: {days_to_fetch}")
+            return days_to_fetch
+
+        elif timeframe_minutes == 10080:  # Weekly
+            # 1 bar per week, 52 weeks per year
+            # Need ~350 weeks = ~2450 calendar days (~7 years)
+            weeks_needed = target_bars
+            days_to_fetch = min(weeks_needed * 7, 2555)  # Cap at 7 years
+            logger.info(f"Timeframe: Week, Target bars: {target_bars}, "
+                       f"Days to fetch: {days_to_fetch}")
+            return days_to_fetch
+
+        # Intraday timeframes
         # RTH trading hours: 6.5 hours = 390 minutes per day
         rth_minutes_per_day = 390
         bars_per_day = rth_minutes_per_day / timeframe_minutes
@@ -240,10 +267,20 @@ class PredictionService:
                 1: TimeFrame.Minute,
                 5: TimeFrame(5, TimeFrameUnit.Minute),
                 15: TimeFrame(15, TimeFrameUnit.Minute),
-                30: TimeFrame(30, TimeFrameUnit.Minute)
+                30: TimeFrame(30, TimeFrameUnit.Minute),
+                1440: TimeFrame.Day,      # 1 day = 1440 minutes
+                10080: TimeFrame.Week     # 1 week = 10080 minutes
             }
             self.timeframe = timeframe_map.get(int(timeframe_minutes), TimeFrame.Minute)
-            logger.info(f"Updated timeframe to: {timeframe_minutes} minutes")
+
+            # Log appropriate message based on timeframe
+            tf_minutes = int(timeframe_minutes)
+            if tf_minutes == 1440:
+                logger.info("Updated timeframe to: Day")
+            elif tf_minutes == 10080:
+                logger.info("Updated timeframe to: Week")
+            else:
+                logger.info(f"Updated timeframe to: {timeframe_minutes} minutes")
 
         # Clear cached data when settings change
         self.latest_historical = None
@@ -262,7 +299,14 @@ class PredictionService:
             if days is None:
                 timeframe_minutes = self._get_timeframe_minutes()
                 days = self._calculate_days_to_fetch(timeframe_minutes)
-                logger.info(f"Auto-calculated {days} days to fetch for {timeframe_minutes}min timeframe")
+                # Log with appropriate timeframe name
+                if timeframe_minutes == 1440:
+                    tf_name = "Day"
+                elif timeframe_minutes == 10080:
+                    tf_name = "Week"
+                else:
+                    tf_name = f"{timeframe_minutes}min"
+                logger.info(f"Auto-calculated {days} days to fetch for {tf_name} timeframe")
 
             # Use timezone-aware datetime for proper market data fetching
             # Alpaca expects UTC or market timezone (Eastern)
@@ -312,22 +356,28 @@ class PredictionService:
                 logger.info(f"Fetched {initial_count} bars from Alpaca (crypto trades 24/7)")
             else:
                 logger.info(f"Fetched {initial_count} bars from Alpaca (includes pre/post market)")
-                
-                # Apply RTH filtering if enabled (only for stocks, crypto trades 24/7)
-                if self.rth_only:
+
+                # Skip RTH filtering for Day/Week timeframes (already aggregated)
+                timeframe_minutes = self._get_timeframe_minutes()
+                is_daily_or_weekly = timeframe_minutes >= 1440
+
+                # Apply RTH filtering if enabled (only for intraday stocks, not daily/weekly)
+                if self.rth_only and not is_daily_or_weekly:
                     # Convert timezone to Eastern Time for RTH filtering
                     df_et = df.copy()
                     df_et['timestamp'] = df_et['timestamp'].dt.tz_convert(self.timezone)
                     df_et = df_et.set_index('timestamp')
-                    
+
                     # Filter to RTH only (9:30 AM - 4:00 PM ET)
                     df_rth = df_et.between_time('09:30', '15:59')
-                    
+
                     # Convert back to original format
                     df = df_rth.reset_index()
-                    
+
                     rth_count = len(df)
                     logger.info(f"RTH filtering: {rth_count} bars remaining (removed {initial_count - rth_count} pre/post-market bars)")
+                elif is_daily_or_weekly:
+                    logger.info("RTH filtering skipped for Day/Week timeframe (already aggregated)")
                 else:
                     logger.info("RTH filtering disabled - using all trading hours")
             
@@ -359,6 +409,10 @@ class PredictionService:
     def _get_pandas_freq(self):
         """Get pandas frequency string from current timeframe"""
         minutes = self._get_timeframe_minutes()
+        if minutes == 1440:
+            return 'D'  # Daily
+        elif minutes == 10080:
+            return 'W'  # Weekly
         return f'{minutes}min'
 
     def generate_prediction(self, n_samples=25):
@@ -456,7 +510,13 @@ class PredictionService:
             exp_return = (np.mean(final_prices) - current_price) / current_price
             
             # Calculate technical indicators
-            vwap = self._calculate_vwap(context_df)
+            # Skip VWAP for Day/Week timeframes (VWAP is intraday indicator only)
+            timeframe_minutes = self._get_timeframe_minutes()
+            if timeframe_minutes >= 1440:
+                vwap = None
+                logger.info("VWAP calculation skipped for Day/Week timeframe")
+            else:
+                vwap = self._calculate_vwap(context_df)
             bollinger = self._calculate_bollinger(context_df['close'].values)
 
             # Calculate Simple Moving Averages for current price

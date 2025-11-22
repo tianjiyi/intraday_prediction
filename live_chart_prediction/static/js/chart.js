@@ -184,17 +184,31 @@ function initChart() {
 }
 
 // Convert data for chart
+// Helper function to add timeframe offset to a date
+function addTimeframeOffset(date, offset) {
+    const newDate = new Date(date);
+    if (currentTimeframe === 1440) {
+        // Daily timeframe - add days
+        newDate.setDate(newDate.getDate() + offset);
+    } else if (currentTimeframe === 10080) {
+        // Weekly timeframe - add weeks
+        newDate.setDate(newDate.getDate() + (offset * 7));
+    } else {
+        // Intraday timeframes - add minutes
+        newDate.setMinutes(newDate.getMinutes() + (offset * currentTimeframe));
+    }
+    return newDate;
+}
+
 function convertToChartData(data, baseDate = null, timeOffset = 0) {
     if (!data || !Array.isArray(data)) return [];
-    
+
     const startDate = baseDate || new Date();
-    
+
     return data.map((value, index) => {
-        const date = new Date(startDate);
-        // Use currentTimeframe for spacing points
-        date.setMinutes(date.getMinutes() + ((index + timeOffset) * currentTimeframe));
+        const date = addTimeframeOffset(startDate, index + timeOffset);
         const unixTime = Math.floor(date.getTime() / 1000);
-        
+
         return {
             time: unixTime,
             value: typeof value === 'number' ? value : parseFloat(value)
@@ -359,11 +373,13 @@ function updateChart(data) {
         }
         
         // Update indicators (draw as horizontal lines across the prediction period)
-        if (summary.current_vwap && baseDate) {
+        // Skip VWAP for Day/Week timeframes (VWAP is intraday indicator only)
+        const isDailyOrWeekly = currentTimeframe >= 1440;
+
+        if (summary.current_vwap && baseDate && !isDailyOrWeekly) {
             const vwapData = [];
             for (let i = 0; i <= 30; i++) {
-                const date = new Date(baseDate);
-                date.setMinutes(date.getMinutes() + (i * currentTimeframe));
+                const date = addTimeframeOffset(baseDate, i);
                 const unixTime = Math.floor(date.getTime() / 1000);
                 vwapData.push({
                     time: unixTime,
@@ -371,24 +387,26 @@ function updateChart(data) {
                 });
             }
             indicatorSeries.vwap.setData(vwapData);
+        } else if (isDailyOrWeekly) {
+            // Clear VWAP for Day/Week timeframes
+            indicatorSeries.vwap.setData([]);
         }
-        
+
         if (summary.bollinger_bands && baseDate) {
             const bb = summary.bollinger_bands;
             const bbUpperData = [];
             const bbMiddleData = [];
             const bbLowerData = [];
-            
+
             for (let i = 0; i <= 30; i++) {
-                const date = new Date(baseDate);
-                date.setMinutes(date.getMinutes() + (i * currentTimeframe));
+                const date = addTimeframeOffset(baseDate, i);
                 const unixTime = Math.floor(date.getTime() / 1000);
-                
+
                 bbUpperData.push({ time: unixTime, value: bb.upper });
                 bbMiddleData.push({ time: unixTime, value: bb.middle });
                 bbLowerData.push({ time: unixTime, value: bb.lower });
             }
-            
+
             indicatorSeries.bbUpper.setData(bbUpperData);
             indicatorSeries.bbMiddle.setData(bbMiddleData);
             indicatorSeries.bbLower.setData(bbLowerData);
