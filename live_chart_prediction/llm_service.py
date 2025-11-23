@@ -10,9 +10,28 @@ import os
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from pathlib import Path
 import pytz
 
 logger = logging.getLogger(__name__)
+
+# Create a separate logger for LLM context logging
+llm_context_logger = logging.getLogger('llm_context')
+llm_context_logger.setLevel(logging.DEBUG)
+
+# Create logs directory if it doesn't exist
+LOG_DIR = Path(__file__).parent / 'logs'
+LOG_DIR.mkdir(exist_ok=True)
+
+# File handler for LLM context (rotates daily)
+llm_log_file = LOG_DIR / 'llm_context.log'
+llm_file_handler = logging.FileHandler(llm_log_file, encoding='utf-8')
+llm_file_handler.setLevel(logging.DEBUG)
+llm_file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s | %(levelname)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+))
+llm_context_logger.addHandler(llm_file_handler)
 
 # Try to import google.generativeai
 try:
@@ -88,6 +107,33 @@ class LLMService:
     def is_available(self) -> bool:
         """Check if LLM service is available"""
         return self.model is not None
+
+    def _log_llm_context(self, method_name: str, prompt: str, response: str = None, error: str = None):
+        """
+        Log LLM input/output context to file
+
+        Args:
+            method_name: Name of the calling method (e.g., 'analyze_technical')
+            prompt: The prompt sent to the LLM
+            response: The response received from the LLM (if successful)
+            error: Error message (if failed)
+        """
+        separator = "=" * 80
+
+        # Log input
+        llm_context_logger.info(f"\n{separator}")
+        llm_context_logger.info(f"METHOD: {method_name}")
+        llm_context_logger.info(f"MODEL: {self.model_name}")
+        llm_context_logger.info(f"{separator}")
+        llm_context_logger.info(f">>> INPUT PROMPT:\n{prompt}")
+
+        # Log output or error
+        if error:
+            llm_context_logger.error(f"<<< ERROR: {error}")
+        elif response:
+            llm_context_logger.info(f"<<< OUTPUT RESPONSE:\n{response}")
+
+        llm_context_logger.info(f"{separator}\n")
 
     async def analyze_technical(
         self,
@@ -187,10 +233,14 @@ Keep the analysis concise but insightful. Use bullet points for clarity."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            response_text = response.text
+            self._log_llm_context('analyze_technical', prompt, response=response_text)
+            return response_text
         except Exception as e:
+            error_msg = str(e)
             logger.error(f"Error generating technical analysis: {e}")
-            return f"Error generating analysis: {str(e)}"
+            self._log_llm_context('analyze_technical', prompt, error=error_msg)
+            return f"Error generating analysis: {error_msg}"
 
     async def check_trading_rules(
         self,
@@ -245,10 +295,14 @@ Be direct and firm - the trader needs honest feedback to stay disciplined."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            response_text = response.text
+            self._log_llm_context('check_trading_rules', prompt, response=response_text)
+            return response_text
         except Exception as e:
+            error_msg = str(e)
             logger.error(f"Error checking trading rules: {e}")
-            return f"Error checking rules: {str(e)}"
+            self._log_llm_context('check_trading_rules', prompt, error=error_msg)
+            return f"Error checking rules: {error_msg}"
 
     async def analyze_sentiment(
         self,
@@ -296,10 +350,14 @@ Provide a concise but comprehensive sentiment summary."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            response_text = response.text
+            self._log_llm_context('analyze_sentiment', prompt, response=response_text)
+            return response_text
         except Exception as e:
+            error_msg = str(e)
             logger.error(f"Error analyzing sentiment: {e}")
-            return f"Error analyzing sentiment: {str(e)}"
+            self._log_llm_context('analyze_sentiment', prompt, error=error_msg)
+            return f"Error analyzing sentiment: {error_msg}"
 
     async def generate_daily_highlights(
         self,
@@ -450,10 +508,14 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            response_text = response.text
+            self._log_llm_context('generate_daily_highlights', prompt, response=response_text)
+            return response_text
         except Exception as e:
+            error_msg = str(e)
             logger.error(f"Error generating daily highlights: {e}")
-            return f"Error generating highlights: {str(e)}"
+            self._log_llm_context('generate_daily_highlights', prompt, error=error_msg)
+            return f"Error generating highlights: {error_msg}"
 
     async def get_full_analysis(
         self,
@@ -488,3 +550,137 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
             results['sentiment'] = "No news data provided for sentiment analysis."
 
         return results
+
+    async def chat_with_context(
+        self,
+        symbol: str,
+        user_message: str,
+        prediction_data: Dict[str, Any],
+        chat_history: List[Dict[str, str]] = None
+    ) -> str:
+        """
+        Chat with the LLM using current market context
+
+        Args:
+            symbol: Trading symbol
+            user_message: User's chat message
+            prediction_data: Current prediction data with indicators
+            chat_history: Previous chat messages for context
+
+        Returns:
+            LLM response
+        """
+        if not self.is_available():
+            return "LLM service not available. Please configure Gemini API key."
+
+        # Build market context
+        current_price = prediction_data.get('current_close', 0)
+        p_up = prediction_data.get('p_up_30m', 0)
+        exp_return = prediction_data.get('exp_ret_30m', 0)
+
+        # Intraday indicators
+        sma_5 = prediction_data.get('sma_5')
+        sma_21 = prediction_data.get('sma_21')
+        sma_233 = prediction_data.get('sma_233')
+        vwap = prediction_data.get('current_vwap')
+        bb = prediction_data.get('bollinger_bands', {})
+
+        # Daily context
+        daily_context = prediction_data.get('daily_context', {})
+        daily_sma_5 = daily_context.get('daily_sma_5') if daily_context else None
+        daily_sma_21 = daily_context.get('daily_sma_21') if daily_context else None
+        daily_sma_233 = daily_context.get('daily_sma_233') if daily_context else None
+        daily_rsi = daily_context.get('daily_rsi') if daily_context else None
+        daily_cci = daily_context.get('daily_cci') if daily_context else None
+        daily_trend = daily_context.get('daily_trend', 'Unknown') if daily_context else 'Unknown'
+        rsi_signal = daily_context.get('rsi_signal', 'N/A') if daily_context else 'N/A'
+        cci_signal = daily_context.get('cci_signal', 'N/A') if daily_context else 'N/A'
+
+        # Daily price levels
+        prev_day_high = daily_context.get('prev_day_high') if daily_context else None
+        prev_day_low = daily_context.get('prev_day_low') if daily_context else None
+        prev_day_close = daily_context.get('prev_day_close') if daily_context else None
+        three_day_high = daily_context.get('three_day_high') if daily_context else None
+        three_day_low = daily_context.get('three_day_low') if daily_context else None
+
+        # Percentiles
+        percentiles = prediction_data.get('percentiles', {})
+
+        # Get current time
+        eastern = pytz.timezone('US/Eastern')
+        now = datetime.now(eastern)
+        day_of_week = now.strftime('%A')
+        time_str = now.strftime('%H:%M')
+
+        # Format chat history
+        history_text = ""
+        if chat_history and len(chat_history) > 0:
+            history_text = "\n## Recent Conversation:\n"
+            for msg in chat_history[-6:]:  # Last 6 messages
+                role = "User" if msg.get('role') == 'user' else "Assistant"
+                history_text += f"**{role}**: {msg.get('content', '')[:500]}\n\n"
+
+        # Build context
+        market_context = f"""## Current Market Data for {symbol}
+- **Current Price**: ${current_price:.2f}
+- **Day/Time**: {day_of_week} {time_str} ET
+- **Timeframe**: {prediction_data.get('timeframe_minutes', 1)} minutes
+
+## Kronos AI Prediction (Next 30 periods)
+- **Probability of Price Increase**: {p_up:.1%}
+- **Expected Return**: {exp_return:.2%}
+- **Prediction Targets**:
+  - P90 (Bullish): ${percentiles.get('p90', [current_price])[-1]:.2f}
+  - P50 (Median): ${percentiles.get('p50', [current_price])[-1]:.2f}
+  - P10 (Bearish): ${percentiles.get('p10', [current_price])[-1]:.2f}
+
+## 🔥 KEY LEVEL - Daily SMA 5 (Bull/Bear Line)
+- **Daily SMA 5**: {f'${daily_sma_5:.2f}' if daily_sma_5 else 'N/A'} - Price is {'ABOVE ✅ (Bullish bias)' if daily_context and daily_context.get('above_daily_sma5') else 'BELOW ❌ (Bearish bias)' if daily_context and daily_context.get('above_daily_sma5') is False else 'N/A'}
+
+## Intraday Indicators
+- **VWAP**: {f'${vwap:.2f}' if vwap else 'N/A'} {'(Price Above)' if vwap and current_price > vwap else '(Price Below)' if vwap else ''}
+- **Bollinger Upper**: {f'${bb.get("upper", 0):.2f}' if bb else 'N/A'}
+- **Bollinger Lower**: {f'${bb.get("lower", 0):.2f}' if bb else 'N/A'}
+- **Intraday SMA 5**: {f'${sma_5:.2f}' if sma_5 else 'N/A'}
+- **Intraday SMA 21**: {f'${sma_21:.2f}' if sma_21 else 'N/A'}
+- **Intraday SMA 233**: {f'${sma_233:.2f}' if sma_233 else 'N/A'}
+
+## Daily Fundamentals
+- **Daily SMA 21**: {f'${daily_sma_21:.2f}' if daily_sma_21 else 'N/A'}
+- **Daily SMA 233**: {f'${daily_sma_233:.2f}' if daily_sma_233 else 'N/A'}
+- **Daily RSI (14)**: {f'{daily_rsi:.1f}' if daily_rsi else 'N/A'} - {rsi_signal}
+- **Daily CCI (20)**: {f'{daily_cci:.1f}' if daily_cci else 'N/A'} - {cci_signal}
+- **Daily Trend**: {daily_trend}
+
+## Key Daily Price Levels
+- **Prev Day High**: {f'${prev_day_high:.2f}' if prev_day_high else 'N/A'} | **Prev Day Low**: {f'${prev_day_low:.2f}' if prev_day_low else 'N/A'}
+- **3-Day High**: {f'${three_day_high:.2f}' if three_day_high else 'N/A'} | **3-Day Low**: {f'${three_day_low:.2f}' if three_day_low else 'N/A'}
+"""
+
+        prompt = f"""You are an expert intraday trading assistant with access to real-time market data. You help traders make informed decisions based on technical analysis.
+
+{market_context}
+{history_text}
+## User's Question:
+{user_message}
+
+## Instructions:
+1. Answer the user's question based on the current market data
+2. Be specific with price levels and percentages
+3. Keep responses concise but informative
+4. If suggesting trades, always mention key levels (Daily SMA 5, VWAP, Bollinger Bands)
+5. Use the Kronos prediction probabilities to assess signal strength
+6. Daily SMA 5 is the most important level for intraday bias
+
+Respond naturally and helpfully. If the question is unclear, ask for clarification."""
+
+        try:
+            response = self.model.generate_content(prompt)
+            response_text = response.text
+            self._log_llm_context('chat_with_context', prompt, response=response_text)
+            return response_text
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error in chat: {e}")
+            self._log_llm_context('chat_with_context', prompt, error=error_msg)
+            return f"Sorry, I encountered an error: {error_msg}"

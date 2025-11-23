@@ -16,7 +16,38 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>🚀 Kronos QQQ Prediction</h1>
+            <div class="header-left">
+                <h1>🚀 Kronos Prediction</h1>
+                <div class="header-controls">
+                    <select id="ticker-select" class="header-select">
+                        <optgroup label="Stocks">
+                            <option value="QQQ" selected>QQQ</option>
+                            <option value="SPY">SPY</option>
+                            <option value="AAPL">AAPL</option>
+                            <option value="TSLA">TSLA</option>
+                            <option value="MSFT">MSFT</option>
+                            <option value="NVDA">NVDA</option>
+                            <option value="META">META</option>
+                            <option value="BABA">BABA</option>
+                        </optgroup>
+                        <optgroup label="Crypto">
+                            <option value="BTC/USD">Bitcoin (BTC/USD)</option>
+                            <option value="ETH/USD">Ethereum (ETH/USD)</option>
+                            <option value="LTC/USD">Litecoin (LTC/USD)</option>
+                            <option value="DOGE/USD">Dogecoin (DOGE/USD)</option>
+                        </optgroup>
+                    </select>
+                    <select id="timeframe-select" class="header-select">
+                        <option value="1" selected>1 min</option>
+                        <option value="5">5 min</option>
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="1440">Day</option>
+                        <option value="10080">Week</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="status-bar">
                 <span id="stream-status" class="stream-status"></span>
                 <span id="connection-status" class="status disconnected">● Disconnected</span>
@@ -56,6 +87,7 @@
                     <button class="tab-btn" data-tab="technical">📈 Technical</button>
                     <button class="tab-btn" data-tab="rules">📋 Rules</button>
                     <button class="tab-btn" data-tab="sentiment">📰 Sentiment</button>
+                    <button class="tab-btn" data-tab="chat">💬 Chat</button>
                 </div>
 
                 <div class="analysis-content">
@@ -79,6 +111,21 @@
                             <p class="placeholder">Click "Analyze" to get market sentiment from news.</p>
                         </div>
                     </div>
+                    <div class="tab-content" id="tab-chat">
+                        <div class="chat-container">
+                            <div class="chat-messages" id="chat-messages">
+                                <div class="chat-message assistant">
+                                    <div class="message-content">
+                                        👋 Hi! I'm your trading assistant. Ask me anything about the current market conditions, technical analysis, or trading rules. I have access to all the live data and indicators.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chat-input-area">
+                                <input type="text" id="chat-input" placeholder="Ask about the market..." autocomplete="off">
+                                <button id="chat-send-btn" class="btn-chat-send">Send</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="analysis-timestamp" id="analysis-timestamp"></div>
@@ -86,7 +133,19 @@
 
             <!-- Chart Container -->
             <div class="chart-container">
-                <div id="chart"></div>
+                <div class="chart-toolbar">
+                    <button id="toggle-predictions" class="btn-tool active" title="Toggle Predictions">🔮 Pred</button>
+                    <button id="toggle-confidence" class="btn-tool active" title="Toggle Confidence Bands">📊 Conf</button>
+                    <button id="toggle-indicators" class="btn-tool active" title="Toggle Indicators">📈 Ind</button>
+                    <button id="toggle-sma" class="btn-tool active" title="Toggle SMAs">〰 SMA</button>
+                </div>
+                <div class="charts-wrapper">
+                    <div id="chart"></div>
+                    <div class="chart-divider" id="chart-divider">
+                        <div class="divider-handle"></div>
+                    </div>
+                    <div id="volume-chart"></div>
+                </div>
                 <!-- Price Overlay -->
                 <div class="price-overlay">
                     <div class="ticker-symbol" id="ticker-symbol">QQQ</div>
@@ -117,7 +176,10 @@
                 <div class="stat-group">
                     <div class="stat-item">
                         <label>Probability Up:</label>
-                        <span id="prob-up" class="value positive">--</span>
+                        <div class="progress-container">
+                            <div id="prob-up-bar" class="progress-bar"></div>
+                            <span id="prob-up" class="value-overlay">--</span>
+                        </div>
                     </div>
                     <div class="stat-item">
                         <label>Expected Return:</label>
@@ -244,40 +306,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Controls -->
-        <div class="controls">
-            <select id="ticker-select">
-                <optgroup label="Stocks">
-                    <option value="QQQ" selected>QQQ</option>
-                    <option value="SPY">SPY</option>
-                    <option value="AAPL">AAPL</option>
-                    <option value="TSLA">TSLA</option>
-                    <option value="MSFT">MSFT</option>
-                    <option value="NVDA">NVDA</option>
-                    <option value="META">META</option>
-                    <option value="BABA">BABA</option>
-                </optgroup>
-                <optgroup label="Crypto">
-                    <option value="BTC/USD">Bitcoin (BTC/USD)</option>
-                    <option value="ETH/USD">Ethereum (ETH/USD)</option>
-                    <option value="LTC/USD">Litecoin (LTC/USD)</option>
-                    <option value="DOGE/USD">Dogecoin (DOGE/USD)</option>
-                </optgroup>
-            </select>
-            <select id="timeframe-select">
-                <option value="1" selected>1 min</option>
-                <option value="5">5 min</option>
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="1440">Day</option>
-                <option value="10080">Week</option>
-            </select>
-            <button id="toggle-predictions" class="btn">Toggle Predictions</button>
-            <button id="toggle-confidence" class="btn">Toggle Confidence Bands</button>
-            <button id="toggle-indicators" class="btn">Toggle Indicators</button>
-            <button id="toggle-sma" class="btn">Toggle SMAs</button>
         </div>
 
         <!-- Footer -->

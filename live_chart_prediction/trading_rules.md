@@ -1,7 +1,6 @@
 # Trading Rules & Constitution (AI-Enforced)
 
-> **IMPORTANT**: These rules are designed to enforce discipline and protect capital.
-> The LLM will check your trades against these rules.
+> **IMPORTANT**: These rules are designed to enforce discipline and protect capital. **The LLM will check your trades against these rules.**
 
 ---
 
@@ -11,16 +10,22 @@
 
 ### A. Key Levels Check (The "Daily Import")
 
-Before Market Open, identify and draw these lines:
+_Before Market Open, identify and draw these lines:_
 
-- **5-Day SMA**: The bull/bear line in sand. (Above = Bullish Bias, Below = Bearish Bias).
-- **PDH / PDL**: Previous Day High and Low.
-- **PMH / PML**: Pre-Market High and Low.
-- **Big Levels**: Major daily support/resistance zones.
+1. **QQQ 5-Day SMA**: The daily bull/bear line in sand.
+   - _Above 5-SMA_: Bullish bias.
+   - _Below 5-SMA_: Defensive bias (Caution on Sell Puts).
 
-**Rule**: Do not initiate new trades directly into these levels. Wait for a reaction (Bounce or Clean Break & Retest).
+2. **Support/Resistance**: Major daily support zones.
 
-### B. Market Type Identification: Trending vs. Swing
+**Rule**: Do not initiate new trades _directly_ into these levels. Wait for a reaction.
+
+### B. Volatility Discipline
+
+- **High Volatility**: When VIX spikes or price actions are erratic, **reduce frequency**.
+- **Logic**: Human reaction time cannot beat algorithms. "Doing nothing is better than doing the wrong thing."
+
+### C. Market Type Identification: Trending vs. Swing
 
 Observe the first 30-60 mins to classify the day:
 
@@ -48,17 +53,7 @@ Observe the first 30-60 mins to classify the day:
 
 ---
 
-## 2. Position Sizing Rules
-
-1. **Maximum Risk**: Never risk more than 2% of portfolio on a single trade idea.
-2. **Tranching**: Enter positions in 2-3 tranches (Scale in), never "All-In" at once.
-3. **Leverage Limits**: Maximum 2x notional leverage. Prefer Cash-Secured for Puts.
-
----
-
-## 3. Entry Rules
-
-### Intraday Trading (1-30 min timeframes)
+## 2. Intraday Entry Rules (1-30 min timeframes)
 
 1. **Time Window**: Trade between 9:45 AM - 3:30 PM ET only.
 2. **Avoid First 15 Mins**: Too much noise, wait for range to form.
@@ -77,22 +72,70 @@ Observe the first 30-60 mins to classify the day:
    - If Price < Daily 5-SMA: No Aggressive Longs (Caution on Sell Puts).
    - If Price > Daily 5-SMA: No Aggressive Shorts.
 
-### Weekly/Swing Trading (Sell Put Strategy)
+---
 
-1. **Entry Days**: Monday-Wednesday preferred.
-2. **No Friday Entries**: Do not open new Premium Selling positions on Fridays (Gamma risk).
-3. **Trend Alignment**: Weekly 5/21 EMA must be bullish for Naked Puts.
-4. **Strike Selection**: Below the Daily 5-SMA or major Support.
+## 3. Weekly Sell Put Strategy (The Engine)
+
+_This is the primary income generator. Strict adherence to parameters is required._
+
+### A. Execution Timing (The Friday Rotation)
+
+1. **Entry/Exit Day**: **Friday**.
+   - _Close_: Let existing options expire worthless or close them.
+   - _Open_: Enter new positions for the next 1-2 weeks.
+
+2. **Logic**: Capitalize on theta decay over the weekend and establish the next week's range.
+
+### B. Entry Criteria (Must Meet ALL)
+
+1. **Trend Filter**: **Weekly** 5 EMA > 21 EMA (Golden Cross).
+   - _Rule_: **NO Naked Puts** if Weekly Trend is Bearish (Dead Cross). Only Spreads or Cash.
+
+2. **Selection**: QQQ (primary) or High Liquidity Tech.
+
+3. **Option Parameters**:
+   - **Delta**: `0.05` to `0.15` (High Probability Zone).
+   - **DTE**: `1` to `2` Weeks.
+   - **Yield Target**: Annualized Return `> 30%`.
+   - _Rule_: If volatility is too low to meet the 30% target with these settings, **DO NOT FORCE IT**.
+
+4. **Strike Selection**:
+   - MUST be below **Weekly 5-SMA**.
+   - OR below **Major Daily Support**.
+   - _Safety_: Always leave a buffer; never sell ATM.
+
+### C. Standard Exit (The Happy Path)
+
+1. **Expiration**: Let expire worthless to capture full premium (preferred).
+2. **Early Take Profit**: If >50% profit is achieved quickly (e.g., within 1-2 days), close to release buying power.
+
+### D. Defense Mechanisms (The "Oh Sh*t" Plan)
+
+- **Trigger**: Option Delta hits `0.5` (ATM) OR Price crashes through Support.
+- **Action**:
+  1. Check support strength.
+  2. **Roll Down & Out**: Roll to a lower strike and later date.
+  3. **Constraint**: Do not roll indefinitely (max ~2 months out). Do not increase risk exposure just to chase premium.
+
+### E. Stop Loss / Circuit Breaker
+
+- **Account Drawdown**: If total account drawdown hits **3% - 5%**:
+  - **ACTION**: Mandatory Risk Reduction.
+  - Consider **Deep Roll** or **Close Loss**. Do not "hope" it comes back.
+
+### F. Repair Tactics (Advanced)
+
+- **Crash Scenario**: If market freefalls, buy **Long Calls** (utilizing high IV/oversold bounce) to hedge delta.
+- **Stalled Rebound**: If rebound stalls, **Sell Calls** (convert to Strangle/Covered Call) to recover losses.
+- **Goal**: Minimize drawdown and close flat/small loss. Do not try to be a hero.
 
 ---
 
-## 4. Exit Rules
+## 4. Exit Rules (Intraday)
 
 1. **Hard Stop Loss**: Set immediately upon entry. Max 1% loss of total account per trade.
 
-2. **Profit Taking**:
-   - **Intraday**: Scale out at 2:1 and 3:1 R/R.
-   - **Sell Put**: Close at 50% profit if achieved quickly (<3 days).
+2. **Profit Taking**: Scale out at 2:1 and 3:1 R/R.
 
 3. **Time Stop**: Close all intraday speculation by 3:45 PM ET. No overnight holds for 0DTE/Day trades.
 
@@ -100,7 +143,17 @@ Observe the first 30-60 mins to classify the day:
 
 ---
 
-## 5. Risk Management
+## 5. Portfolio Balance & Sizing
+
+1. **Portfolio Delta**: Aim for **Neutral to Slightly Positive**.
+   - _Monitor_: SPX Beta-Weighted Delta.
+2. **Leverage**: Max 2x Notional.
+3. **Position Size**: Max 2% risk per trade idea.
+4. **Tranching**: Enter positions in 2-3 tranches (Scale in), never "All-In" at once.
+
+---
+
+## 6. Risk Management
 
 1. **Daily Circuit Breaker**: Stop trading if down 3% in a single day. Walk away.
 2. **Weekly Circuit Breaker**: Reduce size by 50% if down 5% for the week.
@@ -109,7 +162,7 @@ Observe the first 30-60 mins to classify the day:
 
 ---
 
-## 6. Emotional Discipline
+## 7. Emotional Discipline
 
 1. **No Revenge**: Never increase size to "make back" a loss.
 2. **No FOMO**: If you missed the entry at the level, let it go. Don't chase.
@@ -118,7 +171,7 @@ Observe the first 30-60 mins to classify the day:
 
 ---
 
-## 7. Market Conditions to Avoid
+## 8. Market Conditions to Avoid
 
 1. **High Impact News**: FOMC, CPI, NFP, Major Tech Earnings.
 2. **Low Volume**: Holidays, lunch hour (12:00-1:00 PM ET) on slow days.
@@ -126,9 +179,11 @@ Observe the first 30-60 mins to classify the day:
 
 ---
 
-## 8. AI Copilot Instructions (System Prompt)
+## 9. AI Copilot Instructions (System Prompt)
 
-When the user asks for advice, verify against these logic gates:
+_When the user asks for advice, verify against these logic gates:_
+
+### Intraday Trading Checks
 
 1. **Context Check**: "Based on the 5-min chart and VWAP, is today a Trending Day or Range Day?" (Ask user if data is missing).
 
@@ -139,6 +194,16 @@ When the user asks for advice, verify against these logic gates:
 4. **Rule Enforcement**:
    - If the user is trying to trade counter-trend on a "Trending Day", **STOP THEM**.
    - If they are chasing a breakout on a "Range Day", **STOP THEM**.
+
+### Weekly Sell Put Checks
+
+1. **Trend Check**: "Is QQQ Weekly 5/21 EMA bullish?" (If No -> STOP Naked Puts).
+
+2. **Friday Check**: "Is today Friday? If yes, look for Rotation (Close old/Open new)."
+
+3. **Parameter Check**: "Is the proposed Delta between 0.05-0.15? Is the Strike below the Weekly 5-SMA?"
+
+4. **Risk Check**: "If the user is asking about a losing position, reference the '3-5% Drawdown Rule' and suggest Rolling or Hedging."
 
 ---
 

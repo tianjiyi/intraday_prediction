@@ -457,6 +457,72 @@ async def analyze_endpoint(request: AnalysisRequest):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+class ChatRequest(BaseModel):
+    """Request model for chat"""
+    message: str
+    symbol: Optional[str] = None
+    chat_history: Optional[List[Dict[str, str]]] = None
+
+
+@app.post("/api/chat")
+async def chat_endpoint(request: ChatRequest):
+    """
+    Chat with the LLM using current market context
+
+    The LLM has access to:
+    - Current price and Kronos predictions
+    - All technical indicators (SMAs, VWAP, Bollinger Bands)
+    - Daily fundamentals (RSI, CCI, trend)
+    - Key price levels (prev day high/low, 3-day high/low)
+    - Trading rules for compliance checking
+    """
+    try:
+        if not prediction_service:
+            await initialize_prediction_service()
+            if not prediction_service:
+                return JSONResponse({"error": "Prediction service not available"}, status_code=503)
+
+        if not llm_service or not llm_service.is_available():
+            return JSONResponse({
+                "error": "LLM service not available. Please configure GEMINI_API_KEY."
+            }, status_code=503)
+
+        # Use provided symbol or get from prediction service
+        symbol = request.symbol
+        if symbol:
+            prediction_service.update_settings(symbol=symbol)
+
+        # Get current prediction data
+        prediction = prediction_service.get_latest_prediction()
+        if not prediction:
+            prediction = prediction_service.generate_new_prediction()
+
+        if not prediction:
+            return JSONResponse({"error": "No prediction data available"}, status_code=500)
+
+        # Use symbol from prediction if not explicitly provided
+        if not symbol:
+            symbol = prediction.get('symbol', 'QQQ')
+
+        # Get chat response
+        response = await llm_service.chat_with_context(
+            symbol=symbol,
+            user_message=request.message,
+            prediction_data=prediction,
+            chat_history=request.chat_history
+        )
+
+        return {
+            "response": response,
+            "symbol": symbol,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Error in chat: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/news")
 async def get_news_endpoint(symbol: Optional[str] = None, limit: int = 10, hours: int = 24):
     """

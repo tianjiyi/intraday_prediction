@@ -4,7 +4,9 @@
 
 // Global variables
 let chart = null;
+let volumeChart = null;
 let candlestickSeries = null;
+let volumeSeries = null;
 let predictionLineSeries = null;
 let confidenceBandSeries = {};
 let indicatorSeries = {};
@@ -22,9 +24,10 @@ let currentTimeframe = 1; // Current timeframe in minutes
 let aggregatedBar = null; // Track current aggregated bar for multi-minute timeframes
 
 // Chart configuration
+const VOLUME_CHART_HEIGHT = 120;
 const chartOptions = {
     width: 800,
-    height: Math.max(window.innerHeight - 280, 500),
+    height: Math.max(window.innerHeight - 140 - VOLUME_CHART_HEIGHT, 420),
     layout: {
         backgroundColor: '#1e222d',
         textColor: '#d1d4dc',
@@ -92,7 +95,60 @@ function initChart() {
         wickUpColor: '#26a69a',
         wickDownColor: '#ef5350',
     });
-    
+
+    // Create separate volume chart
+    const volumeChartContainer = document.getElementById('volume-chart');
+    volumeChart = LightweightCharts.createChart(volumeChartContainer, {
+        width: volumeChartContainer.clientWidth,
+        height: VOLUME_CHART_HEIGHT,
+        layout: {
+            backgroundColor: '#1e222d',
+            textColor: '#d1d4dc',
+        },
+        grid: {
+            vertLines: { color: '#2B2B43' },
+            horzLines: { color: '#2B2B43' },
+        },
+        rightPriceScale: {
+            borderColor: '#2B2B43',
+            scaleMargins: {
+                top: 0.1,
+                bottom: 0,
+            },
+        },
+        timeScale: {
+            borderColor: '#2B2B43',
+            timeVisible: false,
+            secondsVisible: false,
+            visible: false, // Hide time axis on volume chart (synced with main)
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+    });
+
+    // Create volume series in volume chart
+    volumeSeries = volumeChart.addHistogramSeries({
+        color: '#26a69a',
+        priceFormat: {
+            type: 'volume',
+        },
+        priceScaleId: 'right',
+    });
+
+    // Sync time scales between main chart and volume chart
+    chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+        if (logicalRange) {
+            volumeChart.timeScale().setVisibleLogicalRange(logicalRange);
+        }
+    });
+
+    volumeChart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+        if (logicalRange) {
+            chart.timeScale().setVisibleLogicalRange(logicalRange);
+        }
+    });
+
     // Create line series for mean prediction
     predictionLineSeries = chart.addLineSeries({
         color: '#2962FF',
@@ -217,8 +273,9 @@ function convertToChartData(data, baseDate = null, timeOffset = 0) {
 }
 
 // Convert candlestick data with proper OHLC aggregation for timeframe buckets
+// Returns { candles: [], volumes: [] }
 function convertCandlestickData(data) {
-    if (!data || !Array.isArray(data)) return [];
+    if (!data || !Array.isArray(data)) return { candles: [], volumes: [] };
 
     const timeframeSeconds = currentTimeframe * 60;
     const buckets = new Map();
@@ -246,7 +303,8 @@ function convertCandlestickData(data) {
                 open: parseFloat(candle.open),
                 high: parseFloat(candle.high),
                 low: parseFloat(candle.low),
-                close: parseFloat(candle.close)
+                close: parseFloat(candle.close),
+                volume: parseFloat(candle.volume) || 0
             });
         } else {
             // Aggregate with existing bar in bucket
@@ -254,6 +312,7 @@ function convertCandlestickData(data) {
             existing.high = Math.max(existing.high, parseFloat(candle.high));
             existing.low = Math.min(existing.low, parseFloat(candle.low));
             existing.close = parseFloat(candle.close); // Last close wins
+            existing.volume += parseFloat(candle.volume) || 0; // Sum volume
         }
     });
 
@@ -261,7 +320,24 @@ function convertCandlestickData(data) {
     console.log(`Conversion result: ${data.length} bars -> ${buckets.size} unique buckets`);
 
     // Convert to sorted array (TradingView requires ascending time order)
-    return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+    const sortedBuckets = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+
+    // Separate candles and volumes
+    const candles = sortedBuckets.map(bar => ({
+        time: bar.time,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close
+    }));
+
+    const volumes = sortedBuckets.map(bar => ({
+        time: bar.time,
+        value: bar.volume,
+        color: bar.close >= bar.open ? '#26a69a80' : '#ef535080' // Green/Red with transparency
+    }));
+
+    return { candles, volumes };
 }
 
 // Convert SMA data to chart format with proper bucket aggregation
@@ -300,7 +376,7 @@ function updateChart(data) {
     
     // Update historical candlestick data
     if (data.historical && data.historical.length > 0) {
-        const candleData = convertCandlestickData(data.historical);
+        const { candles: candleData, volumes: volumeData } = convertCandlestickData(data.historical);
 
         // Clear and repopulate barBoundaries with historical data to prevent duplicates
         barBoundaries.clear();
@@ -313,6 +389,13 @@ function updateChart(data) {
         console.log('Initialized barBoundaries with', barBoundaries.size, 'historical bars');
 
         candlestickSeries.setData(candleData);
+
+        // Set volume data
+        if (volumeSeries && volumeData.length > 0) {
+            console.log('Setting volume data:', volumeData.slice(0, 5));
+            volumeSeries.setData(volumeData);
+        }
+
         // Track last candle time for polling logic
         lastCandleTime = candleData[candleData.length - 1]?.time || lastCandleTime;
     }
@@ -387,6 +470,7 @@ function updateChart(data) {
                 });
             }
             indicatorSeries.vwap.setData(vwapData);
+            indicatorSeries.vwap.applyOptions({ visible: showIndicators });
         } else if (isDailyOrWeekly) {
             // Clear VWAP for Day/Week timeframes
             indicatorSeries.vwap.setData([]);
@@ -410,9 +494,15 @@ function updateChart(data) {
             indicatorSeries.bbUpper.setData(bbUpperData);
             indicatorSeries.bbMiddle.setData(bbMiddleData);
             indicatorSeries.bbLower.setData(bbLowerData);
+
+            // Ensure Bollinger Bands visibility is preserved after data update
+            ['bbUpper', 'bbMiddle', 'bbLower'].forEach(key => {
+                indicatorSeries[key].applyOptions({ visible: showIndicators });
+            });
         }
 
-        // Update SMA data
+        // Update SMA data - only if we have historical data to work with
+        // Don't clear existing SMA data if historical is not provided (e.g., WebSocket updates)
         if (data.historical && data.historical.length > 0 && summary.sma_5_series) {
             console.log('SMA data received:', {
                 sma5_length: summary.sma_5_series?.length,
@@ -435,12 +525,21 @@ function updateChart(data) {
             indicatorSeries.sma21.setData(sma21Data);
             indicatorSeries.sma233.setData(sma233Data);
 
-            console.log('SMA data set to chart series');
-        } else {
-            console.log('SMA data not available - clearing series');
+            // Ensure SMA visibility is preserved after data update
+            ['sma5', 'sma21', 'sma233'].forEach(key => {
+                indicatorSeries[key].applyOptions({ visible: showSMAs });
+            });
+
+            console.log('SMA data set to chart series, visibility:', showSMAs);
+        } else if (data.historical && data.historical.length > 0) {
+            // Historical data present but no SMA series - clear them
+            console.log('Historical data present but no SMA series - clearing');
             indicatorSeries.sma5.setData([]);
             indicatorSeries.sma21.setData([]);
             indicatorSeries.sma233.setData([]);
+        } else {
+            // No historical data in this update - keep existing SMA data
+            console.log('No historical data in update - preserving existing SMA series');
         }
 
         // Update statistics panel
@@ -469,8 +568,27 @@ function updateStatsPanel(summary) {
     // Update probabilities
     const probUp = summary.p_up_30m;
     const probUpElement = document.getElementById('prob-up');
-    probUpElement.textContent = probUp !== undefined ? `${(probUp * 100).toFixed(1)}%` : '--';
-    probUpElement.className = probUp >= 0.5 ? 'value positive' : 'value negative';
+    const probUpBar = document.getElementById('prob-up-bar');
+    
+    if (probUp !== undefined) {
+        const percentVal = (probUp * 100).toFixed(1);
+        probUpElement.textContent = `${percentVal}%`;
+        
+        if (probUpBar) {
+            probUpBar.style.width = `${percentVal}%`;
+            // Color gradient based on probability
+            if (probUp > 0.6) {
+                probUpBar.style.background = 'linear-gradient(90deg, #26a69a 0%, #00e676 100%)';
+            } else if (probUp < 0.4) {
+                probUpBar.style.background = 'linear-gradient(90deg, #ef5350 0%, #ff1744 100%)';
+            } else {
+                probUpBar.style.background = 'linear-gradient(90deg, #ffa726 0%, #ff9800 100%)';
+            }
+        }
+    } else {
+        probUpElement.textContent = '--';
+        if (probUpBar) probUpBar.style.width = '0%';
+    }
     
     const expReturn = summary.exp_ret_30m;
     const expReturnElement = document.getElementById('exp-return');
@@ -745,6 +863,7 @@ function togglePredictions() {
     predictionLineSeries.applyOptions({
         visible: showPredictions
     });
+    document.getElementById('toggle-predictions').classList.toggle('active', showPredictions);
 }
 
 function toggleConfidenceBands() {
@@ -752,6 +871,7 @@ function toggleConfidenceBands() {
     Object.values(confidenceBandSeries).forEach(series => {
         series.applyOptions({ visible: showConfidence });
     });
+    document.getElementById('toggle-confidence').classList.toggle('active', showConfidence);
 }
 
 function toggleIndicators() {
@@ -762,6 +882,7 @@ function toggleIndicators() {
             indicatorSeries[key].applyOptions({ visible: showIndicators });
         }
     });
+    document.getElementById('toggle-indicators').classList.toggle('active', showIndicators);
 }
 
 function toggleSMAs() {
@@ -772,6 +893,7 @@ function toggleSMAs() {
             indicatorSeries[key].applyOptions({ visible: showSMAs });
         }
     });
+    document.getElementById('toggle-sma').classList.toggle('active', showSMAs);
 }
 
 // Initialize WebSocket connection
@@ -906,6 +1028,7 @@ function updateCurrentBar(barData) {
     const bucketedTime = Math.floor(unixTime / timeframeSeconds) * timeframeSeconds;
 
     let displayBar;
+    let volumeValue;
 
     if (aggregatedBar && aggregatedBar.time === bucketedTime) {
         // Merge current update with existing aggregated data
@@ -916,6 +1039,7 @@ function updateCurrentBar(barData) {
             low: Math.min(aggregatedBar.low, barData.low),
             close: barData.close
         };
+        volumeValue = (aggregatedBar.volume || 0) + (parseFloat(barData.volume) || 0);
     } else {
         // Start of a new bucket (or no aggregation yet)
         displayBar = {
@@ -925,10 +1049,20 @@ function updateCurrentBar(barData) {
             low: barData.low,
             close: barData.close
         };
+        volumeValue = parseFloat(barData.volume) || 0;
     }
 
     // Update the last bar in the series
     candlestickSeries.update(displayBar);
+
+    // Update volume bar
+    if (volumeSeries) {
+        volumeSeries.update({
+            time: bucketedTime,
+            value: volumeValue,
+            color: displayBar.close >= displayBar.open ? '#26a69a80' : '#ef535080'
+        });
+    }
 
     // Update price overlay with current bar data
     updatePriceOverlay(barData);
@@ -938,6 +1072,7 @@ function updateCurrentBar(barData) {
 
     // Store current bar for reference
     currentBar = displayBar;
+    currentBar.volume = volumeValue; // Store volume for aggregation
     lastCandleTime = Math.max(lastCandleTime || 0, displayBar.time);
 }
 
@@ -955,6 +1090,7 @@ function addCompletedBar(barData) {
 
     // Check if this is actually a new bucket
     const isNewBucket = !barBoundaries.has(bucketedTime);
+    const volumeValue = parseFloat(barData.volume) || 0;
 
     if (isNewBucket) {
         // New bucket - start new aggregated bar
@@ -963,9 +1099,10 @@ function addCompletedBar(barData) {
             open: barData.open,
             high: barData.high,
             low: barData.low,
-            close: barData.close
+            close: barData.close,
+            volume: volumeValue
         };
-        
+
         candlestickSeries.update(aggregatedBar);
         barBoundaries.add(bucketedTime);
         console.log('Added new bar at:', new Date(bucketedTime * 1000).toISOString());
@@ -984,17 +1121,28 @@ function addCompletedBar(barData) {
                 open: barData.open,
                 high: barData.high,
                 low: barData.low,
-                close: barData.close
+                close: barData.close,
+                volume: volumeValue
             };
         } else {
             // Aggregate data
             aggregatedBar.high = Math.max(aggregatedBar.high, barData.high);
             aggregatedBar.low = Math.min(aggregatedBar.low, barData.low);
             aggregatedBar.close = barData.close;
+            aggregatedBar.volume = (aggregatedBar.volume || 0) + volumeValue;
         }
-        
+
         candlestickSeries.update(aggregatedBar);
         console.log('Updated existing bar at:', new Date(bucketedTime * 1000).toISOString());
+    }
+
+    // Update volume bar
+    if (volumeSeries) {
+        volumeSeries.update({
+            time: bucketedTime,
+            value: aggregatedBar.volume,
+            color: aggregatedBar.close >= aggregatedBar.open ? '#26a69a80' : '#ef535080'
+        });
     }
 
     // Update price overlay with completed bar data
@@ -1256,16 +1404,132 @@ function checkForNewData() {
 }
 
 // Resize chart on window resize
+let currentVolumeHeight = VOLUME_CHART_HEIGHT; // Track current volume chart height
+
 function resizeChart() {
     if (chart) {
         const container = document.getElementById('chart');
-        const height = Math.max(window.innerHeight - 280, 500);
+        const volumeContainer = document.getElementById('volume-chart');
+        const chartsWrapper = document.querySelector('.charts-wrapper');
+        const divider = document.getElementById('chart-divider');
+        const dividerHeight = divider ? divider.offsetHeight : 8;
+
+        // Use wrapper height if available, otherwise calculate from window
+        const totalHeight = chartsWrapper ? chartsWrapper.clientHeight : Math.max(window.innerHeight - 140, 500);
+        const mainChartHeight = totalHeight - currentVolumeHeight - dividerHeight;
+
         chart.applyOptions({
             width: container.clientWidth,
-            height: height
+            height: mainChartHeight
         });
-        // Also update container height
-        container.style.height = height + 'px';
+        container.style.height = mainChartHeight + 'px';
+
+        // Resize volume chart
+        if (volumeChart && volumeContainer) {
+            volumeChart.applyOptions({
+                width: volumeContainer.clientWidth,
+                height: currentVolumeHeight
+            });
+            volumeContainer.style.height = currentVolumeHeight + 'px';
+        }
+    }
+}
+
+// ==========================================
+// Chart Divider Drag Functionality
+// ==========================================
+
+const MIN_MAIN_CHART_HEIGHT = 200;
+const MIN_VOLUME_HEIGHT = 60;
+const MAX_VOLUME_HEIGHT = 300;
+
+function initChartDivider() {
+    const divider = document.getElementById('chart-divider');
+    const chartsWrapper = document.querySelector('.charts-wrapper');
+    const mainChartContainer = document.getElementById('chart');
+    const volumeContainer = document.getElementById('volume-chart');
+
+    if (!divider || !chartsWrapper || !mainChartContainer || !volumeContainer) {
+        console.warn('Chart divider elements not found');
+        return;
+    }
+
+    let isDragging = false;
+    let startY = 0;
+    let startVolumeHeight = 0;
+
+    // Mouse down - start dragging
+    divider.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startY = e.clientY;
+        startVolumeHeight = volumeContainer.offsetHeight;
+        divider.classList.add('dragging');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    // Mouse move - resize charts
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaY = startY - e.clientY; // Positive = dragging up = more volume
+        let newVolumeHeight = startVolumeHeight + deltaY;
+
+        // Get available space
+        const wrapperHeight = chartsWrapper.clientHeight;
+        const dividerHeight = divider.offsetHeight;
+        const maxVolumeHeight = Math.min(MAX_VOLUME_HEIGHT, wrapperHeight - MIN_MAIN_CHART_HEIGHT - dividerHeight);
+
+        // Clamp to min/max
+        newVolumeHeight = Math.max(MIN_VOLUME_HEIGHT, Math.min(maxVolumeHeight, newVolumeHeight));
+
+        // Calculate main chart height
+        const newMainChartHeight = wrapperHeight - newVolumeHeight - dividerHeight;
+
+        // Update current volume height
+        currentVolumeHeight = newVolumeHeight;
+
+        // Apply new sizes
+        mainChartContainer.style.height = newMainChartHeight + 'px';
+        volumeContainer.style.height = newVolumeHeight + 'px';
+
+        // Update chart dimensions
+        if (chart) {
+            chart.applyOptions({
+                width: mainChartContainer.clientWidth,
+                height: newMainChartHeight
+            });
+        }
+
+        if (volumeChart) {
+            volumeChart.applyOptions({
+                width: volumeContainer.clientWidth,
+                height: newVolumeHeight
+            });
+        }
+    });
+
+    // Mouse up - stop dragging
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            divider.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+
+            // Save to localStorage for persistence
+            localStorage.setItem('volumeChartHeight', currentVolumeHeight);
+        }
+    });
+
+    // Load saved height from localStorage
+    const savedHeight = localStorage.getItem('volumeChartHeight');
+    if (savedHeight) {
+        currentVolumeHeight = parseInt(savedHeight, 10);
+        if (isNaN(currentVolumeHeight) || currentVolumeHeight < MIN_VOLUME_HEIGHT) {
+            currentVolumeHeight = VOLUME_CHART_HEIGHT;
+        }
     }
 }
 
@@ -1482,10 +1746,192 @@ function initAnalysisPanel() {
     });
 }
 
+// ==========================================
+// Chat Functions
+// ==========================================
+
+let chatHistory = [];
+let latestPredictionData = null; // Store latest prediction data for chat context
+
+// Store prediction data when chart updates
+function storePredictionData(data) {
+    if (data && data.prediction) {
+        latestPredictionData = data;
+    }
+}
+
+// Send chat message
+async function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    const messagesContainer = document.getElementById('chat-messages');
+
+    const message = input.value.trim();
+    if (!message) return;
+
+    // Disable input while processing
+    input.disabled = true;
+    sendBtn.disabled = true;
+
+    // Add user message to chat
+    addChatMessage('user', message);
+    input.value = '';
+
+    // Add loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'chat-message assistant loading';
+    loadingDiv.innerHTML = `
+        <div class="message-content">
+            <div class="typing-indicator">
+                <span></span><span></span><span></span>
+            </div>
+            Thinking...
+        </div>
+    `;
+    messagesContainer.appendChild(loadingDiv);
+    scrollChatToBottom();
+
+    try {
+        const ticker = document.getElementById('ticker-select').value;
+
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message,
+                symbol: ticker,
+                chat_history: chatHistory.slice(-10) // Send last 10 messages for context
+            })
+        });
+
+        const data = await response.json();
+
+        // Remove loading indicator
+        messagesContainer.removeChild(loadingDiv);
+
+        if (data.error) {
+            addChatMessage('assistant', `Error: ${data.error}`);
+        } else {
+            addChatMessage('assistant', data.response);
+
+            // Store in history
+            chatHistory.push({ role: 'user', content: message });
+            chatHistory.push({ role: 'assistant', content: data.response });
+        }
+
+    } catch (error) {
+        console.error('Chat error:', error);
+        messagesContainer.removeChild(loadingDiv);
+        addChatMessage('assistant', 'Sorry, there was an error processing your message. Please try again.');
+    } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+    }
+}
+
+// Add message to chat display
+function addChatMessage(role, content) {
+    const messagesContainer = document.getElementById('chat-messages');
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${role}`;
+
+    // Format the content (convert markdown-like to HTML for assistant messages)
+    const formattedContent = role === 'assistant' ? formatChatResponse(content) : escapeHtml(content);
+
+    const time = new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+
+    messageDiv.innerHTML = `
+        <div class="message-content">${formattedContent}</div>
+        <div class="message-time">${time}</div>
+    `;
+
+    messagesContainer.appendChild(messageDiv);
+    scrollChatToBottom();
+}
+
+// Format chat response (similar to analysis text formatting)
+function formatChatResponse(text) {
+    if (!text) return '';
+
+    let html = text
+        // Escape HTML
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        // Headers
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        // Bold
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        // Italic
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        // Bullet points
+        .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
+        // Code
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        // Line breaks
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+
+    // Wrap consecutive list items
+    html = html.replace(/(<li>.*?<\/li>(<br>)?)+/g, '<ul>$&</ul>');
+    html = html.replace(/<br><\/li>/g, '</li>');
+
+    // Highlight trading signals
+    html = html.replace(/\b(Buy|Strong Buy|Bullish|BULLISH|Long)\b/gi, '<span class="signal-buy">$1</span>');
+    html = html.replace(/\b(Sell|Strong Sell|Bearish|BEARISH|Short)\b/gi, '<span class="signal-sell">$1</span>');
+    html = html.replace(/\b(Hold|Wait|Neutral|NEUTRAL)\b/gi, '<span class="signal-hold">$1</span>');
+
+    return html;
+}
+
+// Escape HTML for user messages
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Scroll chat to bottom
+function scrollChatToBottom() {
+    const messagesContainer = document.getElementById('chat-messages');
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// Initialize chat
+function initChat() {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+
+    if (input && sendBtn) {
+        // Send on button click
+        sendBtn.addEventListener('click', sendChatMessage);
+
+        // Send on Enter key
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+    }
+}
+
 // Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize chart
     initChart();
+
+    // Initialize chart divider for resizing
+    initChartDivider();
 
     // Initialize WebSocket
     initWebSocket();
@@ -1522,4 +1968,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize analysis panel
     initAnalysisPanel();
+
+    // Initialize chat
+    initChat();
 });
