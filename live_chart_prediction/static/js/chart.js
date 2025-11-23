@@ -24,7 +24,7 @@ let aggregatedBar = null; // Track current aggregated bar for multi-minute timef
 // Chart configuration
 const chartOptions = {
     width: 800,
-    height: 500,
+    height: Math.max(window.innerHeight - 280, 500),
     layout: {
         backgroundColor: '#1e222d',
         textColor: '#d1d4dc',
@@ -523,7 +523,144 @@ function updateStatsPanel(summary) {
     if (summary.model_name !== undefined) {
         document.getElementById('model-name').textContent = summary.model_name;
     }
-    
+
+    // Update Daily Fundamentals (daily context)
+    if (summary.daily_context) {
+        const dc = summary.daily_context;
+
+        // Daily SMAs with price position
+        const currentPrice = summary.current_close;
+
+        // Daily SMA 5
+        if (dc.daily_sma_5) {
+            const sma5El = document.getElementById('daily-sma5');
+            const above5 = currentPrice > dc.daily_sma_5;
+            sma5El.textContent = `$${dc.daily_sma_5.toFixed(2)} ${above5 ? '↑' : '↓'}`;
+            sma5El.className = `value ${above5 ? 'positive' : 'negative'}`;
+        } else {
+            document.getElementById('daily-sma5').textContent = '--';
+        }
+
+        // Daily SMA 21
+        if (dc.daily_sma_21) {
+            const sma21El = document.getElementById('daily-sma21');
+            const above21 = currentPrice > dc.daily_sma_21;
+            sma21El.textContent = `$${dc.daily_sma_21.toFixed(2)} ${above21 ? '↑' : '↓'}`;
+            sma21El.className = `value ${above21 ? 'positive' : 'negative'}`;
+        } else {
+            document.getElementById('daily-sma21').textContent = '--';
+        }
+
+        // Daily SMA 233
+        if (dc.daily_sma_233) {
+            const sma233El = document.getElementById('daily-sma233');
+            const above233 = currentPrice > dc.daily_sma_233;
+            sma233El.textContent = `$${dc.daily_sma_233.toFixed(2)} ${above233 ? '↑' : '↓'}`;
+            sma233El.className = `value ${above233 ? 'positive' : 'negative'}`;
+        } else {
+            document.getElementById('daily-sma233').textContent = '--';
+        }
+
+        // Daily RSI with signal color
+        if (dc.daily_rsi !== null && dc.daily_rsi !== undefined) {
+            const rsiEl = document.getElementById('daily-rsi');
+            rsiEl.textContent = `${dc.daily_rsi.toFixed(1)} (${dc.rsi_signal})`;
+            // Color based on RSI signal
+            if (dc.rsi_signal === 'Overbought') {
+                rsiEl.className = 'value negative';
+            } else if (dc.rsi_signal === 'Oversold') {
+                rsiEl.className = 'value positive';
+            } else if (dc.rsi_signal === 'Bullish') {
+                rsiEl.className = 'value positive';
+            } else if (dc.rsi_signal === 'Bearish') {
+                rsiEl.className = 'value negative';
+            } else {
+                rsiEl.className = 'value';
+            }
+        } else {
+            document.getElementById('daily-rsi').textContent = '--';
+        }
+
+        // Daily CCI with signal color
+        if (dc.daily_cci !== null && dc.daily_cci !== undefined) {
+            const cciEl = document.getElementById('daily-cci');
+            cciEl.textContent = `${dc.daily_cci.toFixed(1)} (${dc.cci_signal})`;
+            // Color based on CCI signal
+            if (dc.cci_signal === 'Strong Bullish' || dc.cci_signal === 'Bullish') {
+                cciEl.className = 'value positive';
+            } else if (dc.cci_signal === 'Strong Bearish' || dc.cci_signal === 'Bearish') {
+                cciEl.className = 'value negative';
+            } else {
+                cciEl.className = 'value';
+            }
+        } else {
+            document.getElementById('daily-cci').textContent = '--';
+        }
+
+        // Daily Trend
+        if (dc.daily_trend) {
+            const trendEl = document.getElementById('daily-trend');
+            trendEl.textContent = dc.daily_trend;
+            // Color based on trend
+            if (dc.daily_trend.includes('Bullish')) {
+                trendEl.className = 'value positive';
+            } else if (dc.daily_trend.includes('Bearish')) {
+                trendEl.className = 'value negative';
+            } else {
+                trendEl.className = 'value';
+            }
+        } else {
+            document.getElementById('daily-trend').textContent = '--';
+        }
+
+        // Daily Price Levels (currentPrice already declared above)
+
+        // Previous Day High
+        if (dc.prev_day_high) {
+            const el = document.getElementById('prev-day-high');
+            el.textContent = `$${dc.prev_day_high.toFixed(2)}`;
+            el.className = currentPrice > dc.prev_day_high ? 'value positive' : 'value level-resistance';
+        } else {
+            document.getElementById('prev-day-high').textContent = '--';
+        }
+
+        // Previous Day Low
+        if (dc.prev_day_low) {
+            const el = document.getElementById('prev-day-low');
+            el.textContent = `$${dc.prev_day_low.toFixed(2)}`;
+            el.className = currentPrice < dc.prev_day_low ? 'value negative' : 'value level-support';
+        } else {
+            document.getElementById('prev-day-low').textContent = '--';
+        }
+
+        // Previous Day Close
+        if (dc.prev_day_close) {
+            const el = document.getElementById('prev-day-close');
+            el.textContent = `$${dc.prev_day_close.toFixed(2)}`;
+            el.className = currentPrice > dc.prev_day_close ? 'value positive' : 'value negative';
+        } else {
+            document.getElementById('prev-day-close').textContent = '--';
+        }
+
+        // 3-Day High
+        if (dc.three_day_high) {
+            const el = document.getElementById('three-day-high');
+            el.textContent = `$${dc.three_day_high.toFixed(2)}`;
+            el.className = currentPrice > dc.three_day_high ? 'value positive' : 'value level-resistance';
+        } else {
+            document.getElementById('three-day-high').textContent = '--';
+        }
+
+        // 3-Day Low
+        if (dc.three_day_low) {
+            const el = document.getElementById('three-day-low');
+            el.textContent = `$${dc.three_day_low.toFixed(2)}`;
+            el.className = currentPrice < dc.three_day_low ? 'value negative' : 'value level-support';
+        } else {
+            document.getElementById('three-day-low').textContent = '--';
+        }
+    }
+
     // Update last update time - use prediction timestamp if available
     let updateTimeText = 'Last Update: ';
     if (summary.timestamp) {
@@ -1122,27 +1259,243 @@ function checkForNewData() {
 function resizeChart() {
     if (chart) {
         const container = document.getElementById('chart');
+        const height = Math.max(window.innerHeight - 280, 500);
         chart.applyOptions({
             width: container.clientWidth,
-            height: container.clientHeight || 500
+            height: height
         });
+        // Also update container height
+        container.style.height = height + 'px';
     }
+}
+
+// ==========================================
+// LLM Analysis Functions
+// ==========================================
+
+let llmAvailable = false;
+let currentAnalysis = {
+    highlights: null,
+    technical: null,
+    rules: null,
+    sentiment: null
+};
+
+// Check LLM status on load
+async function checkLLMStatus() {
+    const statusIndicator = document.getElementById('llm-status-indicator');
+    const statusText = document.getElementById('llm-status-text');
+
+    statusIndicator.className = 'status-indicator checking';
+    statusText.textContent = 'Checking LLM status...';
+
+    try {
+        const response = await fetch('/api/llm_status');
+        const data = await response.json();
+
+        llmAvailable = data.available;
+
+        if (llmAvailable) {
+            statusIndicator.className = 'status-indicator available';
+            statusText.textContent = `LLM Ready (${data.model || 'Gemini'})`;
+        } else {
+            statusIndicator.className = 'status-indicator unavailable';
+            statusText.textContent = data.reason || 'LLM not configured';
+        }
+    } catch (error) {
+        console.error('Failed to check LLM status:', error);
+        statusIndicator.className = 'status-indicator unavailable';
+        statusText.textContent = 'LLM status check failed';
+        llmAvailable = false;
+    }
+}
+
+// Run analysis
+async function runAnalysis() {
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const analysisType = document.getElementById('analysis-type').value;
+    const ticker = document.getElementById('ticker-select').value;
+
+    if (!llmAvailable) {
+        showNotification('LLM service not available. Please configure Gemini API key.', 'error');
+        return;
+    }
+
+    // Update button state
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = '⏳ Analyzing...';
+    analyzeBtn.classList.add('loading');
+
+    try {
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: ticker,
+                analysis_type: analysisType
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        // Update analysis content
+        if (data.highlights) {
+            currentAnalysis.highlights = data.highlights;
+            document.getElementById('highlights-analysis').innerHTML = formatAnalysisText(data.highlights);
+            // Auto-switch to highlights tab
+            switchAnalysisTab('highlights');
+        }
+
+        if (data.technical) {
+            currentAnalysis.technical = data.technical;
+            document.getElementById('technical-analysis').innerHTML = formatAnalysisText(data.technical);
+        }
+
+        if (data.rules) {
+            currentAnalysis.rules = data.rules;
+            document.getElementById('rules-analysis').innerHTML = formatAnalysisText(data.rules);
+        }
+
+        if (data.sentiment) {
+            currentAnalysis.sentiment = data.sentiment;
+            document.getElementById('sentiment-analysis').innerHTML = formatAnalysisText(data.sentiment);
+        }
+
+        // Update timestamp
+        const timestamp = new Date().toLocaleString();
+        document.getElementById('analysis-timestamp').textContent = `Last analysis: ${timestamp}`;
+
+        showNotification('Analysis complete!', 'success');
+
+    } catch (error) {
+        console.error('Analysis failed:', error);
+        showNotification(`Analysis failed: ${error.message}`, 'error');
+    } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = '✨ Analyze';
+        analyzeBtn.classList.remove('loading');
+    }
+}
+
+// Format analysis text (markdown-like to HTML)
+function formatAnalysisText(text) {
+    if (!text) return '<p class="placeholder">No analysis available.</p>';
+
+    // Convert markdown-like syntax to HTML
+    let html = text
+        // Escape HTML
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        // Headers
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        // Bold
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        // Italic
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        // Bullet points
+        .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
+        // Numbered lists
+        .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+        // Code
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        // Line breaks
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+
+    // Wrap in paragraphs
+    html = '<p>' + html + '</p>';
+
+    // Wrap consecutive list items
+    html = html.replace(/(<li>.*?<\/li>(?:<br>)?)+/g, '<ul>$&</ul>');
+    html = html.replace(/<br><\/li>/g, '</li>');
+
+    // Highlight signals
+    html = html.replace(/\b(Buy|Strong Buy|Bullish|BULLISH)\b/gi, '<span class="signal-buy">$1</span>');
+    html = html.replace(/\b(Sell|Strong Sell|Bearish|BEARISH)\b/gi, '<span class="signal-sell">$1</span>');
+    html = html.replace(/\b(Hold|Wait|Neutral|NEUTRAL)\b/gi, '<span class="signal-hold">$1</span>');
+    html = html.replace(/\b(PASS)\b/g, '<span class="signal-buy">$1</span>');
+    html = html.replace(/\b(FAIL)\b/g, '<span class="signal-sell">$1</span>');
+    html = html.replace(/\b(WARN)\b/g, '<span class="signal-hold">$1</span>');
+    // Day type highlights
+    html = html.replace(/\b(TRENDING DAY|Trending Day|Trend Day)\b/gi, '<span class="signal-buy">$1</span>');
+    html = html.replace(/\b(RANGE DAY|Range Day|Swing Day|SWING DAY|Choppy Day)\b/gi, '<span class="signal-hold">$1</span>');
+    // Key levels
+    html = html.replace(/\b(Resistance|RESISTANCE)\b/gi, '<span class="signal-sell">$1</span>');
+    html = html.replace(/\b(Support|SUPPORT)\b/gi, '<span class="signal-buy">$1</span>');
+
+    return html;
+}
+
+// Handle tab switching
+function switchAnalysisTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.tab === tabName) {
+            btn.classList.add('active');
+        }
+    });
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+}
+
+// Toggle analysis panel
+function toggleAnalysisPanel() {
+    const panel = document.getElementById('analysis-panel');
+    panel.classList.toggle('collapsed');
+}
+
+// Initialize analysis panel event listeners
+function initAnalysisPanel() {
+    // Check LLM status
+    checkLLMStatus();
+
+    // Analyze button
+    const analyzeBtn = document.getElementById('analyze-btn');
+    if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', runAnalysis);
+    }
+
+    // Toggle panel button
+    const toggleBtn = document.getElementById('toggle-analysis-panel');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleAnalysisPanel);
+    }
+
+    // Tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            switchAnalysisTab(btn.dataset.tab);
+        });
+    });
 }
 
 // Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize chart
     initChart();
-    
+
     // Initialize WebSocket
     initWebSocket();
-    
+
     // Load initial data
     loadInitialData();
-    
+
     // Start streaming after initial load
     setTimeout(() => startStreaming(), 2000);
-    
+
     // Setup event listeners
     document.getElementById('refresh-btn').addEventListener('click', refreshData);
     document.getElementById('toggle-predictions').addEventListener('click', togglePredictions);
@@ -1151,15 +1504,22 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('toggle-sma').addEventListener('click', toggleSMAs);
     document.getElementById('timeframe-select').addEventListener('change', handleTimeframeChange);
     document.getElementById('ticker-select').addEventListener('change', handleTickerChange);
-    
-    // Handle window resize
-    window.addEventListener('resize', resizeChart);
-    
+
+    // Handle window resize with debounce for performance
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(resizeChart, 100);
+    });
+
     // Initialize timezone display
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneShort = new Date().toLocaleDateString('en', {timeZoneName:'short'}).split(', ')[1];
     document.getElementById('timezone-info').textContent = `Times shown in ${timezoneShort}`;
-    
+
     // Initial resize
     resizeChart();
+
+    // Initialize analysis panel
+    initAnalysisPanel();
 });

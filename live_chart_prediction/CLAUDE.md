@@ -27,7 +27,12 @@ Real-time financial prediction visualization system using the Kronos model with 
 - ✅ **Technical Indicators**: Simple Moving Averages (5, 21, 233), VWAP, Bollinger Bands
 - ✅ **OHLC Price Overlay**: Interactive price display with crosshair tracking
 - ✅ **Confidence Bands**: Prediction uncertainty visualization (10th, 25th, 75th, 90th percentiles)
-- ✅ **Multi-Timeframe**: 1min, 5min, 15min, 30min chart intervals
+- ✅ **Multi-Timeframe**: 1min, 5min, 15min, 30min, Day, Week chart intervals
+- ✅ **AI Analysis Panel**: LLM-powered (Gemini) market analysis with technical, rules, and sentiment tabs
+- ✅ **Daily Fundamentals**: Daily SMA 5/21/233, RSI, CCI for higher timeframe context
+- ✅ **Key Daily Levels**: Previous day high/low/close, 3-day high/low for support/resistance
+- ✅ **News Sentiment**: Alpaca News API integration for market sentiment analysis
+- ✅ **Trading Rules Engine**: Custom trading rules file for AI rule compliance checking
 
 ### Technology Stack
 - **Backend**: FastAPI (Python 3.8+)
@@ -87,6 +92,9 @@ live_chart_prediction/
 ├── main.py                      # FastAPI server & WebSocket management
 ├── prediction_service.py        # Kronos model integration & predictions
 ├── websocket_manager.py         # Real-time data streaming from Alpaca
+├── llm_service.py               # LLM (Gemini) integration for AI analysis
+├── news_service.py              # Alpaca News API for sentiment analysis
+├── trading_rules.md             # Custom trading rules for AI compliance
 ├── config.yaml                  # Parent directory configuration
 ├── requirements.txt             # Python dependencies
 ├── README.md                    # User documentation
@@ -1288,7 +1296,30 @@ CMD ["python", "main.py"]
 
 ## Version History
 
-### v2.1.0 (Current)
+### v2.2.0 (Current)
+- ✅ **AI Analysis Panel**: LLM integration with Google Gemini for market analysis
+  - Daily Highlights tab with sentiment, day type, key levels
+  - Technical Analysis tab with comprehensive market assessment
+  - Trading Rules tab for rule compliance checking
+  - News Sentiment tab with Alpaca News API integration
+- ✅ **Daily Fundamentals Context**: Higher timeframe indicators for intraday trading
+  - Daily SMA 5 (Bull/Bear Line) - #1 most important level
+  - Daily SMA 21 & SMA 233 for trend context
+  - Daily RSI (14) with overbought/oversold signals
+  - Daily CCI (20) with momentum signals
+- ✅ **Key Daily Price Levels**: Critical support/resistance for intraday
+  - Previous Day High/Low/Close
+  - 3-Day High/Low (swing levels)
+  - Today's High/Low
+- ✅ **Priority-Based Analysis**: LLM prompts weighted by importance
+  - 🔥 #1: Daily SMA 5 (determines intraday bias)
+  - 🎯 #2: Intraday VWAP & Bollinger Bands
+  - 📊 Reference: Other daily indicators and price levels
+- ✅ Wider left analysis panel (420px) for better readability
+- ✅ Day and Week timeframe support
+- ✅ Custom trading rules file (trading_rules.md)
+
+### v2.1.0
 - ✅ Dynamic historical bar fetching (300-400 bars based on timeframe)
 - ✅ Simple Moving Averages (SMA 5, 21, 233)
 - ✅ OHLC price overlay with crosshair tracking

@@ -568,6 +568,9 @@ class PredictionService:
             model_checkpoint = self.config['model']['checkpoint']
             model_name = model_checkpoint.split('/')[-1] if '/' in model_checkpoint else model_checkpoint
 
+            # Get daily context for fundamental analysis (daily SMAs, RSI, CCI)
+            daily_context = self.get_daily_context()
+
             prediction_summary = {
                 'current_close': current_price,
                 'mean_path': mean_path.tolist(),
@@ -582,6 +585,7 @@ class PredictionService:
                 'sma_5_series': sma_5_series,
                 'sma_21_series': sma_21_series,
                 'sma_233_series': sma_233_series,
+                'daily_context': daily_context,  # Daily-level indicators for fundamentals
                 'n_samples': n_samples,
                 'rth_only': self.rth_only if asset_type == 'stock' else False,  # RTH only applies to stocks
                 'asset_type': asset_type,
@@ -636,8 +640,240 @@ class PredictionService:
         try:
             if len(prices) < period:
                 return None
-            return np.mean(prices[-period:])
+            return float(np.mean(prices[-period:]))
         except:
+            return None
+
+    def _calculate_rsi(self, prices, period=14):
+        """Calculate Relative Strength Index"""
+        try:
+            if len(prices) < period + 1:
+                return None
+
+            # Calculate price changes
+            deltas = np.diff(prices)
+
+            # Separate gains and losses
+            gains = np.where(deltas > 0, deltas, 0)
+            losses = np.where(deltas < 0, -deltas, 0)
+
+            # Calculate average gains and losses (using SMA for simplicity)
+            avg_gain = np.mean(gains[-period:])
+            avg_loss = np.mean(losses[-period:])
+
+            if avg_loss == 0:
+                return 100.0
+
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+
+            return float(rsi)
+        except:
+            return None
+
+    def _calculate_cci(self, high, low, close, period=20):
+        """Calculate Commodity Channel Index"""
+        try:
+            if len(close) < period:
+                return None
+
+            # Typical Price
+            tp = (high[-period:] + low[-period:] + close[-period:]) / 3
+
+            # Simple Moving Average of Typical Price
+            sma_tp = np.mean(tp)
+
+            # Mean Deviation
+            mean_dev = np.mean(np.abs(tp - sma_tp))
+
+            if mean_dev == 0:
+                return 0.0
+
+            # CCI formula: (Typical Price - SMA) / (0.015 * Mean Deviation)
+            current_tp = (high[-1] + low[-1] + close[-1]) / 3
+            cci = (current_tp - sma_tp) / (0.015 * mean_dev)
+
+            return float(cci)
+        except:
+            return None
+
+    def fetch_daily_data(self, days=365):
+        """
+        Fetch daily bar data for calculating daily-level technical indicators
+
+        Args:
+            days: Number of days to fetch (default 365 for SMA233 + buffer)
+
+        Returns:
+            DataFrame with daily OHLCV data
+        """
+        try:
+            # Use timezone-aware datetime
+            eastern = pytz.timezone('US/Eastern')
+            end_time = self._get_market_aware_end_time(eastern)
+            start_time = end_time - timedelta(days=days)
+
+            logger.info(f"Fetching daily data for {self.symbol} from {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}")
+
+            # Determine if crypto or stock
+            is_crypto = self._is_crypto_symbol(self.symbol)
+
+            if is_crypto:
+                request = CryptoBarsRequest(
+                    symbol_or_symbols=self.symbol,
+                    timeframe=TimeFrame.Day,
+                    start=start_time,
+                    end=end_time
+                )
+                bars = self.crypto_client.get_crypto_bars(request)
+            else:
+                request = StockBarsRequest(
+                    symbol_or_symbols=self.symbol,
+                    timeframe=TimeFrame.Day,
+                    start=start_time,
+                    end=end_time
+                )
+                bars = self.stock_client.get_stock_bars(request)
+
+            df = bars.df
+
+            if df.empty:
+                logger.warning("No daily data received from Alpaca")
+                return None
+
+            # Reset index and format
+            df = df.reset_index()
+            logger.info(f"Fetched {len(df)} daily bars for daily indicators")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching daily data: {e}")
+            return None
+
+    def get_daily_context(self):
+        """
+        Calculate daily-level technical indicators as fundamental context for intraday trading
+
+        Returns:
+            Dict with daily SMA5, SMA21, SMA233, RSI14, CCI20
+        """
+        try:
+            # Fetch daily data (need 365 days for SMA233 + buffer)
+            daily_df = self.fetch_daily_data(days=400)
+
+            if daily_df is None or daily_df.empty:
+                logger.warning("No daily data available for daily context")
+                return None
+
+            # Extract price arrays
+            closes = daily_df['close'].values
+            highs = daily_df['high'].values
+            lows = daily_df['low'].values
+
+            # Calculate daily SMAs
+            daily_sma_5 = self._calculate_sma(closes, 5)
+            daily_sma_21 = self._calculate_sma(closes, 21)
+            daily_sma_233 = self._calculate_sma(closes, 233)
+
+            # Calculate RSI (14-period)
+            daily_rsi = self._calculate_rsi(closes, period=14)
+
+            # Calculate CCI (20-period)
+            daily_cci = self._calculate_cci(highs, lows, closes, period=20)
+
+            # Get current daily close
+            current_daily_close = float(closes[-1])
+
+            # Get previous day (yesterday) OHLC
+            prev_day_high = float(highs[-2]) if len(highs) >= 2 else None
+            prev_day_low = float(lows[-2]) if len(lows) >= 2 else None
+            prev_day_close = float(closes[-2]) if len(closes) >= 2 else None
+
+            # Get 3-day high and low (last 3 trading days including today)
+            three_day_high = float(np.max(highs[-3:])) if len(highs) >= 3 else None
+            three_day_low = float(np.min(lows[-3:])) if len(lows) >= 3 else None
+
+            # Get today's high and low (most recent day)
+            today_high = float(highs[-1]) if len(highs) >= 1 else None
+            today_low = float(lows[-1]) if len(lows) >= 1 else None
+
+            # Determine price position relative to SMAs (convert to Python bool for JSON serialization)
+            above_sma5 = bool(current_daily_close > daily_sma_5) if daily_sma_5 else None
+            above_sma21 = bool(current_daily_close > daily_sma_21) if daily_sma_21 else None
+            above_sma233 = bool(current_daily_close > daily_sma_233) if daily_sma_233 else None
+
+            # Determine trend based on SMA relationships
+            trend = "Unknown"
+            if daily_sma_5 and daily_sma_21:
+                if daily_sma_5 > daily_sma_21:
+                    trend = "Bullish" if above_sma5 else "Weakening Bullish"
+                else:
+                    trend = "Bearish" if not above_sma5 else "Weakening Bearish"
+
+            # RSI interpretation
+            rsi_signal = "Neutral"
+            if daily_rsi:
+                if daily_rsi > 70:
+                    rsi_signal = "Overbought"
+                elif daily_rsi < 30:
+                    rsi_signal = "Oversold"
+                elif daily_rsi > 50:
+                    rsi_signal = "Bullish"
+                else:
+                    rsi_signal = "Bearish"
+
+            # CCI interpretation
+            cci_signal = "Neutral"
+            if daily_cci:
+                if daily_cci > 100:
+                    cci_signal = "Strong Bullish"
+                elif daily_cci > 0:
+                    cci_signal = "Bullish"
+                elif daily_cci < -100:
+                    cci_signal = "Strong Bearish"
+                else:
+                    cci_signal = "Bearish"
+
+            daily_context = {
+                'daily_close': current_daily_close,
+                'daily_sma_5': daily_sma_5,
+                'daily_sma_21': daily_sma_21,
+                'daily_sma_233': daily_sma_233,
+                'daily_rsi': daily_rsi,
+                'daily_cci': daily_cci,
+                'above_daily_sma5': above_sma5,
+                'above_daily_sma21': above_sma21,
+                'above_daily_sma233': above_sma233,
+                'daily_trend': trend,
+                'rsi_signal': rsi_signal,
+                'cci_signal': cci_signal,
+                # Previous day levels (key support/resistance)
+                'prev_day_high': prev_day_high,
+                'prev_day_low': prev_day_low,
+                'prev_day_close': prev_day_close,
+                # Today's range
+                'today_high': today_high,
+                'today_low': today_low,
+                # 3-day range (recent swing high/low)
+                'three_day_high': three_day_high,
+                'three_day_low': three_day_low,
+                'daily_bars_count': len(daily_df)
+            }
+
+            # Log the daily context
+            sma5_str = f"${daily_sma_5:.2f}" if daily_sma_5 else "N/A"
+            sma21_str = f"${daily_sma_21:.2f}" if daily_sma_21 else "N/A"
+            sma233_str = f"${daily_sma_233:.2f}" if daily_sma_233 else "N/A"
+            rsi_str = f"{daily_rsi:.1f}" if daily_rsi else "N/A"
+            cci_str = f"{daily_cci:.1f}" if daily_cci else "N/A"
+
+            logger.info(f"Daily Context: SMA5={sma5_str}, SMA21={sma21_str}, SMA233={sma233_str}, RSI={rsi_str}, CCI={cci_str}, Trend={trend}")
+
+            return daily_context
+
+        except Exception as e:
+            logger.error(f"Error calculating daily context: {e}")
             return None
 
     def _calculate_sma_series(self, df, period):

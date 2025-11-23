@@ -28,6 +28,62 @@
 
         <!-- Main Content -->
         <div class="main-content">
+            <!-- LLM Analysis Panel (Left) -->
+            <div class="analysis-panel" id="analysis-panel">
+                <div class="analysis-header">
+                    <h3>🤖 AI Analysis</h3>
+                    <button id="toggle-analysis-panel" class="btn-toggle" title="Toggle Panel">◀</button>
+                </div>
+
+                <div class="analysis-controls">
+                    <button id="analyze-btn" class="btn-analyze">✨ Analyze</button>
+                    <select id="analysis-type">
+                        <option value="highlights" selected>Daily Highlights</option>
+                        <option value="full">Full Analysis</option>
+                        <option value="technical">Technical Only</option>
+                        <option value="rules">Rules Check</option>
+                        <option value="sentiment">Sentiment Only</option>
+                    </select>
+                </div>
+
+                <div class="analysis-status" id="analysis-status">
+                    <span class="status-indicator" id="llm-status-indicator">●</span>
+                    <span id="llm-status-text">Checking LLM status...</span>
+                </div>
+
+                <div class="analysis-tabs">
+                    <button class="tab-btn active" data-tab="highlights">⚡ Highlights</button>
+                    <button class="tab-btn" data-tab="technical">📈 Technical</button>
+                    <button class="tab-btn" data-tab="rules">📋 Rules</button>
+                    <button class="tab-btn" data-tab="sentiment">📰 Sentiment</button>
+                </div>
+
+                <div class="analysis-content">
+                    <div class="tab-content active" id="tab-highlights">
+                        <div class="analysis-text" id="highlights-analysis">
+                            <p class="placeholder">Click "Analyze" to get daily highlights: sentiment, day type, and key levels.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-technical">
+                        <div class="analysis-text" id="technical-analysis">
+                            <p class="placeholder">Click "Analyze" to get AI-powered technical analysis based on Kronos predictions.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-rules">
+                        <div class="analysis-text" id="rules-analysis">
+                            <p class="placeholder">Click "Analyze" to check trading rules compliance.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-sentiment">
+                        <div class="analysis-text" id="sentiment-analysis">
+                            <p class="placeholder">Click "Analyze" to get market sentiment from news.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analysis-timestamp" id="analysis-timestamp"></div>
+            </div>
+
             <!-- Chart Container -->
             <div class="chart-container">
                 <div id="chart"></div>
@@ -94,7 +150,7 @@
                 </div>
 
                 <div class="stat-group">
-                    <h4>Technical Indicators</h4>
+                    <h4>Intraday Indicators</h4>
                     <div class="stat-item">
                         <label>VWAP:</label>
                         <span id="vwap" class="value">--</span>
@@ -110,6 +166,58 @@
                     <div class="stat-item">
                         <label>Bollinger Lower:</label>
                         <span id="bb-lower" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group daily-fundamentals">
+                    <h4>📊 Daily Fundamentals</h4>
+                    <div class="stat-item">
+                        <label>Daily SMA 5:</label>
+                        <span id="daily-sma5" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily SMA 21:</label>
+                        <span id="daily-sma21" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily SMA 233:</label>
+                        <span id="daily-sma233" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily RSI (14):</label>
+                        <span id="daily-rsi" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily CCI (20):</label>
+                        <span id="daily-cci" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily Trend:</label>
+                        <span id="daily-trend" class="value trend-unknown">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group daily-levels">
+                    <h4>📍 Key Daily Levels</h4>
+                    <div class="stat-item">
+                        <label>Prev Day High:</label>
+                        <span id="prev-day-high" class="value level-resistance">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Prev Day Low:</label>
+                        <span id="prev-day-low" class="value level-support">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Prev Day Close:</label>
+                        <span id="prev-day-close" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>3-Day High:</label>
+                        <span id="three-day-high" class="value level-resistance">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>3-Day Low:</label>
+                        <span id="three-day-low" class="value level-support">--</span>
                     </div>
                 </div>
 
