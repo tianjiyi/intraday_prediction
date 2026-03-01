@@ -12,6 +12,9 @@ from typing import Dict, List, Optional
 import logging
 import logging.config
 
+import yaml
+from dotenv import load_dotenv
+
 # FastAPI and async imports
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -24,10 +27,20 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Kronos"))
 
+# Load .env file (supports both platform/.env and project root .env)
+_env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(_env_path)
+
 from services.prediction_service import PredictionService
 from services.websocket_manager import AlpacaWebSocketManager
 from services.llm_service import LLMService
 from services.news_service import NewsService
+from services.twitter_service import TwitterService
+
+# Load config once at module level - shared by all services
+_config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+with open(_config_path) as _f:
+    app_config = yaml.safe_load(_f)
 
 
 # Setup logging with timestamps
@@ -94,6 +107,7 @@ prediction_service: Optional[PredictionService] = None
 websocket_manager: Optional[AlpacaWebSocketManager] = None
 llm_service: Optional[LLMService] = None
 news_service: Optional[NewsService] = None
+twitter_service: Optional[TwitterService] = None
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -191,14 +205,14 @@ class StartStreamRequest(BaseModel):
 
 async def initialize_prediction_service():
     """Initialize the prediction service and related services"""
-    global prediction_service, llm_service, news_service
+    global prediction_service, llm_service, news_service, twitter_service
     try:
-        prediction_service = PredictionService()
-        logger.info("Prediction service initialized successfully")
+        prediction_service = PredictionService(app_config)
+        logger.info(f"Prediction service initialized (model_available={prediction_service.model_available})")
 
-        # Initialize LLM service using prediction service's config
+        # Initialize LLM service using shared config
         try:
-            llm_service = LLMService(prediction_service.config)
+            llm_service = LLMService(app_config)
             if llm_service.is_available():
                 logger.info("LLM service initialized successfully")
             else:
@@ -206,15 +220,21 @@ async def initialize_prediction_service():
         except Exception as e:
             logger.warning(f"LLM service initialization failed: {e}")
 
-        # Initialize News service
+        # Initialize News service using shared config
         try:
-            news_service = NewsService(prediction_service.config)
+            news_service = NewsService(app_config)
             if news_service.is_available():
                 logger.info("News service initialized successfully")
             else:
                 logger.warning("News service initialized but not available")
         except Exception as e:
             logger.warning(f"News service initialization failed: {e}")
+
+        # Initialize Twitter/X service
+        try:
+            twitter_service = TwitterService(app_config)
+        except Exception as e:
+            logger.warning(f"Twitter service initialization failed: {e}")
 
         return True
     except Exception as e:
@@ -264,6 +284,23 @@ async def shutdown_event():
             logger.warning(f"Error stopping WebSocket manager: {e}")
     
     logger.info("FastAPI server shutdown complete")
+
+# Health check endpoint (for Docker HEALTHCHECK / load balancers)
+@app.get("/api/health")
+async def health():
+    """Return service health status"""
+    return {
+        "status": "ok",
+        "services": {
+            "prediction": prediction_service is not None,
+            "kronos_model": getattr(prediction_service, 'model_available', False),
+            "llm": llm_service.is_available() if llm_service else False,
+            "news": news_service.is_available() if news_service else False,
+            "twitter": twitter_service.is_available() if twitter_service else False,
+            "websocket": websocket_manager is not None,
+        }
+    }
+
 
 # Routes
 @app.get("/", response_class=HTMLResponse)
@@ -492,6 +529,21 @@ async def analyze_endpoint(request: AnalysisRequest):
                             news_items.append(item)
                     logger.info(f"Combined total: {len(news_items)} news items")
 
+            # Merge Twitter/X posts into news feed
+            if twitter_service and twitter_service.is_available():
+                twitter_config = app_config.get('twitter', {})
+                tweet_limit = twitter_config.get('search_limit', 20)
+                tweet_hours = twitter_config.get('hours_back', 24)
+                tweets = await twitter_service.search_tweets(symbol, limit=tweet_limit, hours_back=tweet_hours)
+                if tweets:
+                    existing_ids = {item['id'] for item in news_items}
+                    for tweet in tweets:
+                        if tweet['id'] not in existing_ids:
+                            news_items.append(tweet)
+                    # Sort combined feed by created_at descending
+                    news_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                    logger.info(f"Added {len(tweets)} tweets. Total news+tweets: {len(news_items)}")
+
         if request.analysis_type in ["sentiment", "full"]:
             results['sentiment'] = await llm_service.analyze_sentiment(symbol, news_items)
             results['news_count'] = len(news_items)
@@ -687,6 +739,21 @@ async def get_news_endpoint(symbol: Optional[str] = None, limit: int = 10, hours
 
         news_items = await news_service.get_news(symbol, limit=limit, hours_back=hours)
 
+        # Merge Twitter/X posts
+        if twitter_service and twitter_service.is_available():
+            twitter_config = app_config.get('twitter', {})
+            tweets = await twitter_service.search_tweets(
+                symbol,
+                limit=twitter_config.get('search_limit', 20),
+                hours_back=min(hours, twitter_config.get('hours_back', 24))
+            )
+            if tweets:
+                existing_ids = {item['id'] for item in news_items}
+                for tweet in tweets:
+                    if tweet['id'] not in existing_ids:
+                        news_items.append(tweet)
+                news_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
         # Get simple sentiment keywords
         sentiment = news_service.get_sentiment_keywords(news_items)
 
@@ -724,6 +791,7 @@ async def llm_status_endpoint():
         "provider": llm_service.provider if llm_service else None,
         "reason": reason,
         "news_available": news_service.is_available() if news_service else False,
+        "twitter_available": twitter_service.is_available() if twitter_service else False,
         "trading_rules_loaded": bool(llm_service.trading_rules) if llm_service else False
     }
 
@@ -870,7 +938,7 @@ if __name__ == "__main__":
     logger.info("Starting FastAPI server with uvicorn...")
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=5000,
         reload=False,
         log_config=LOG_CONFIG,

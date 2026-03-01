@@ -78,6 +78,10 @@ class AlpacaWebSocketManager:
         self.stock_stream = None
         self.fastapi_loop = fastapi_loop
         
+        # Resolve API keys: env vars take precedence over config
+        self._api_key = os.environ.get('ALPACA_KEY_ID') or self.config.get('ALPACA_KEY_ID', '')
+        self._secret_key = os.environ.get('ALPACA_SECRET_KEY') or self.config.get('ALPACA_SECRET_KEY', '')
+
         # Track current bar being formed
         self.current_bar = {}
         self.bar_start_time = None
@@ -119,8 +123,8 @@ class AlpacaWebSocketManager:
         try:
             # Create modern crypto stream with minimal parameters (match documentation exactly)
             self.crypto_stream = CryptoDataStream(
-                self.config['ALPACA_KEY_ID'],        # api_key (positional)
-                self.config['ALPACA_SECRET_KEY'],    # secret_key (positional)
+                self._api_key,        # api_key (positional)
+                self._secret_key,     # secret_key (positional)
                 feed=CryptoFeed.US
             )
             
@@ -148,8 +152,8 @@ class AlpacaWebSocketManager:
             
             # Create stream instance with appropriate configuration
             self.stream = Stream(
-                key_id=self.config['ALPACA_KEY_ID'],
-                secret_key=self.config['ALPACA_SECRET_KEY'],
+                key_id=self._api_key,
+                secret_key=self._secret_key,
                 base_url=URL(base_url),
                 data_feed=data_feed,
                 raw_data=False
@@ -717,8 +721,8 @@ class AlpacaWebSocketManager:
             # Quick connection test - try to create stream instance
             # This is a lightweight test before attempting full connection
             test_stream = CryptoDataStream(
-                self.config['ALPACA_KEY_ID'],
-                self.config['ALPACA_SECRET_KEY']
+                self._api_key,
+                self._secret_key
             )
             
             # If we can create the stream, assume connection will work

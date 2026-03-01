@@ -9,11 +9,11 @@ An agentic AI trading platform for intraday financial market analysis and predic
 intraday_predication/
 ├── platform/                  # PRODUCTION: Live web app (FastAPI + TradingView)
 │   ├── main.py                # FastAPI entry point
-│   ├── config.yaml            # App configuration (API keys, model settings)
+│   ├── config.yaml            # App configuration (no secrets - those go in .env)
 │   ├── requirements.txt       # Python dependencies
 │   ├── trading_rules.md       # AI-enforced trading rules
 │   ├── services/              # Backend service modules
-│   │   ├── prediction_service.py   # Kronos model integration
+│   │   ├── prediction_service.py   # Kronos model integration (optional)
 │   │   ├── llm_service.py         # Gemini LLM analysis
 │   │   ├── news_service.py        # Alpaca News API
 │   │   └── websocket_manager.py   # Real-time Alpaca streaming
@@ -30,16 +30,12 @@ intraday_predication/
 │   └── scripts/               # One-off debug/POC scripts
 │
 ├── data/                      # DATA: All artifacts (gitignored)
-│   ├── historical/            # Historical OHLCV data
-│   ├── kronos_training/       # Kronos training datasets
-│   ├── kronos_checkpoints/    # Fine-tuned model weights
-│   ├── yolo_datasets/         # YOLO training images/labels
-│   ├── yolo_models/           # YOLO .pt weights
-│   ├── model_checkpoints/     # Other model checkpoints
-│   └── test_outputs/          # Test/backtest results
 │
 ├── Kronos/                    # Git submodule: Kronos foundation model
-├── venv/                      # Python virtual environment
+├── Dockerfile                 # CPU Docker image
+├── docker-compose.yml         # App + Cloudflare Tunnel
+├── .env.example               # Template for secrets
+├── venv/                      # Python virtual environment (local dev)
 └── .gitignore
 ```
 
@@ -50,14 +46,30 @@ intraday_predication/
 
 ## Common Commands
 
-### Running the Platform
+### Running the Platform (Local)
 ```bash
 # Activate virtual environment
 . venv/Scripts/activate
 
 # Start the live trading dashboard
 cd platform && python main.py
-# Opens at http://127.0.0.1:5000
+# Opens at http://localhost:5000
+```
+
+### Docker
+```bash
+docker compose up -d          # Start app + Cloudflare tunnel
+docker compose logs -f app    # View logs
+docker compose down           # Stop
+```
+
+### Cloud Deployment
+```bash
+# Any VM with Docker installed:
+# 1. Clone repo
+# 2. Copy .env.example -> .env, fill in secrets
+# 3. Set CLOUDFLARE_TUNNEL_TOKEN in .env
+# 4. docker compose up -d
 ```
 
 ### Dependencies
@@ -73,8 +85,13 @@ cd platform && pip install -r requirements.txt
 - **Data**: Alpaca Markets API (stocks + crypto)
 - **Database**: SQLite (via SQLAlchemy) for agent data
 
+## Configuration
+- **Secrets**: All API keys live in `.env` (gitignored). See `.env.example` for the template.
+- **Config**: `platform/config.yaml` has non-secret settings (model params, sampling, etc.)
+- **Kronos**: Optional - set `model.enabled: false` in config.yaml to disable. Platform runs with data-only mode (no forecast bands).
+
 ## Important Reminders
-1. Never commit API keys or credentials (config.yaml is gitignored)
+1. Never commit API keys or credentials (.env is gitignored)
 2. The `data/` directory is gitignored - contains large model weights and datasets
 3. Always check for existing code conventions before making changes
 4. Consider market hours and timezone handling (Eastern time for RTH)

@@ -7,8 +7,9 @@ data/
 
 # Sensitive configuration files
 config.yaml
-*.env
 .env
+*.env
+!.env.example
 
 # Python
 __pycache__/

@@ -23,7 +23,11 @@ sys.path.insert(0, os.path.join(_project_root, "Kronos"))
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from model import Kronos, KronosTokenizer, KronosPredictor
+try:
+    from model import Kronos, KronosTokenizer, KronosPredictor
+    KRONOS_AVAILABLE = True
+except ImportError:
+    KRONOS_AVAILABLE = False
 
 # Setup logging with timestamps (module-level)
 logging.basicConfig(
@@ -35,31 +39,52 @@ logger = logging.getLogger(__name__)
 
 class PredictionService:
     """Service for generating QQQ predictions using Kronos model"""
-    
-    def __init__(self, config_path=None):
-        if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
-        """Initialize the prediction service"""
-        self.config = self._load_config(config_path)
-        self.config_dir = os.path.dirname(os.path.abspath(config_path))  # Store config directory
+
+    def __init__(self, config=None):
+        """Initialize the prediction service.
+
+        Args:
+            config: Config dict or path to config YAML file. If None, loads default config.yaml.
+        """
+        if config is None:
+            config = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+
+        if isinstance(config, str):
+            # config is a file path
+            self.config_dir = os.path.dirname(os.path.abspath(config))
+            self.config = self._load_config(config)
+        else:
+            # config is already a dict
+            self.config_dir = os.path.dirname(os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+            ))
+            self.config = config
+
         self.symbol = self.config['symbol']
         self.timeframe = TimeFrame.Minute  # Default timeframe
-        
+
         # RTH configuration
         self.rth_only = self.config.get('data', {}).get('rth_only', True)
         self.timezone = pytz.timezone('US/Eastern')  # Market timezone
-        
+
         # Initialize Alpaca clients
         self._init_alpaca()
-        
-        # Initialize Kronos model
-        self._init_model()
-        
+
+        # Initialize Kronos model (optional - platform works without it)
+        self.model_available = False
+        model_enabled = self.config.get('model', {}).get('enabled', True)
+        if model_enabled and KRONOS_AVAILABLE:
+            self._init_model()
+        elif not KRONOS_AVAILABLE:
+            logger.warning("Kronos model not available (import failed). Running without predictions.")
+        else:
+            logger.info("Kronos model disabled in config. Running without predictions.")
+
         # Cache for latest data
         self.latest_historical = None
         self.latest_prediction = None
         self.last_update = None
-        
+
         logger.info(f"RTH Only mode: {'Enabled' if self.rth_only else 'Disabled'}")
     
     def _is_crypto_symbol(self, symbol):
@@ -92,25 +117,29 @@ class PredictionService:
     
     def _init_alpaca(self):
         """Initialize Alpaca API clients"""
+        api_key = os.environ.get('ALPACA_KEY_ID') or self.config.get('ALPACA_KEY_ID', '')
+        secret_key = os.environ.get('ALPACA_SECRET_KEY') or self.config.get('ALPACA_SECRET_KEY', '')
+
         # Stock client (requires API keys)
         self.stock_client = StockHistoricalDataClient(
-            api_key=self.config['ALPACA_KEY_ID'],
-            secret_key=self.config['ALPACA_SECRET_KEY']
+            api_key=api_key,
+            secret_key=secret_key
         )
-        
+
         # Crypto client (no API keys required, but using them increases rate limits)
         self.crypto_client = CryptoHistoricalDataClient(
-            api_key=self.config.get('ALPACA_KEY_ID'),
-            secret_key=self.config.get('ALPACA_SECRET_KEY')
+            api_key=api_key,
+            secret_key=secret_key
         )
-        
+
         logger.info("Alpaca clients initialized (stock and crypto)")
     
     def _init_model(self):
         """Initialize Kronos model and tokenizer"""
         try:
+            import torch
+
             # Convert relative paths to absolute paths for local models
-            # Relative paths are resolved relative to config.yaml location
             tokenizer_path = self.config['model']['tokenizer']
             if tokenizer_path.startswith('./') or tokenizer_path.startswith('../'):
                 tokenizer_path = os.path.abspath(os.path.join(self.config_dir, tokenizer_path))
@@ -127,19 +156,26 @@ class PredictionService:
 
             # Load model from pretrained (HuggingFace or local)
             self.model = Kronos.from_pretrained(checkpoint_path)
-            
+
+            # Auto-detect device
+            device = self.config['model'].get('device', 'auto')
+            if device == 'auto':
+                device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+            logger.info(f"Using device: {device}")
+
             # Create predictor
             self.predictor = KronosPredictor(
                 model=self.model,
                 tokenizer=self.tokenizer,
-                device=self.config['model']['device'],
+                device=device,
                 max_context=self.config['model']['max_context']
             )
-            
+
+            self.model_available = True
             logger.info(f"Kronos model loaded: {self.config['model']['checkpoint']}")
         except Exception as e:
-            logger.error(f"Failed to initialize model: {e}")
-            raise
+            logger.warning(f"Failed to initialize Kronos model: {e}. Running without predictions.")
+            self.model_available = False
     
     def _get_timeframe_minutes(self):
         """Extract timeframe in minutes from self.timeframe"""
@@ -422,6 +458,10 @@ class PredictionService:
 
     def generate_prediction(self, n_samples=25):
         """Generate prediction using Kronos model with sequential batch Monte Carlo sampling"""
+        if not self.model_available:
+            logger.info("Kronos model not available. Returning data-only prediction (no forecast).")
+            return self._generate_data_only_prediction()
+
         try:
             logger.info(f"Starting prediction generation for {self.symbol} with {n_samples} samples")
             if not self.latest_historical:
@@ -612,6 +652,75 @@ class PredictionService:
             logger.error(f"Error generating prediction: {e}")
             return None
     
+    def _generate_data_only_prediction(self):
+        """Generate a prediction dict with only historical data and indicators (no Kronos model)."""
+        try:
+            if not self.latest_historical:
+                self.fetch_historical_data()
+            if not self.latest_historical:
+                return None
+
+            context_length = self.config['data']['lookback_bars']
+            context_data = self.latest_historical[-context_length:]
+
+            context_df = pd.DataFrame(context_data)
+            current_price = float(context_df['close'].iloc[-1])
+            asset_type = self._get_asset_type(self.symbol)
+            display_name = self._get_display_name(self.symbol)
+
+            # Calculate indicators (same as full prediction)
+            vwap = self._calculate_vwap(context_df) if 'volume' in context_df.columns else None
+            bollinger = self._calculate_bollinger(context_df['close'].values)
+            sma_5 = self._calculate_sma(context_df['close'].values, 5)
+            sma_21 = self._calculate_sma(context_df['close'].values, 21)
+            sma_233 = self._calculate_sma(context_df['close'].values, 233)
+
+            # SMA series for chart overlay
+            try:
+                full_df = pd.DataFrame(self.latest_historical)
+                sma_5_series = self._calculate_sma_series(full_df, 5)
+                sma_21_series = self._calculate_sma_series(full_df, 21)
+                sma_233_series = self._calculate_sma_series(full_df, 233)
+            except Exception:
+                sma_5_series = sma_21_series = sma_233_series = []
+
+            daily_context = self.get_daily_context()
+
+            prediction_summary = {
+                'current_close': current_price,
+                'mean_path': None,
+                'percentiles': None,
+                'p_up_30m': 0.5,        # neutral when no model
+                'exp_ret_30m': 0.0,
+                'current_vwap': vwap,
+                'bollinger_bands': bollinger,
+                'sma_5': sma_5,
+                'sma_21': sma_21,
+                'sma_233': sma_233,
+                'sma_5_series': sma_5_series,
+                'sma_21_series': sma_21_series,
+                'sma_233_series': sma_233_series,
+                'daily_context': daily_context,
+                'n_samples': 0,
+                'rth_only': self.rth_only if asset_type == 'stock' else False,
+                'asset_type': asset_type,
+                'display_name': display_name,
+                'symbol': self.symbol,
+                'timeframe_minutes': self._get_timeframe_minutes(),
+                'model_name': 'none (data only)',
+                'data_bars_count': len(context_data),
+                'timestamp': datetime.now(pytz.timezone('US/Eastern')).isoformat()
+            }
+
+            self.latest_prediction = prediction_summary
+            self.last_update = datetime.now(pytz.timezone('US/Eastern'))
+            logger.info(f"Data-only prediction generated for {self.symbol} (no Kronos model)")
+            return prediction_summary
+
+        except Exception as e:
+            logger.error(f"Error generating data-only prediction: {e}")
+            return None
+
     def _calculate_vwap(self, df):
         """Calculate VWAP from DataFrame"""
         try:
