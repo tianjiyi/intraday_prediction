@@ -1,0 +1,106 @@
+import { create } from 'zustand'
+import type { ChatMessage } from '../types/chat'
+import { sendChatMessage, formatHistory } from '../api/chat'
+
+interface ChatState {
+  messages: ChatMessage[]
+  sessionId: string | null
+  isLoading: boolean
+  isOpen: boolean
+
+  toggleChat: () => void
+  setOpen: (open: boolean) => void
+  sendMessage: (text: string, symbol?: string) => Promise<void>
+  addMessage: (msg: ChatMessage) => void
+  clearMessages: () => void
+}
+
+let msgId = 0
+function nextId() {
+  return `msg-${Date.now()}-${++msgId}`
+}
+
+export const useChatStore = create<ChatState>((set, get) => ({
+  messages: [
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content:
+        "Hi! I'm your trading assistant. Ask me anything about markets, news, or technical analysis.",
+      timestamp: new Date().toISOString(),
+    },
+  ],
+  sessionId: null,
+  isLoading: false,
+  isOpen: true,
+
+  toggleChat: () => set((s) => ({ isOpen: !s.isOpen })),
+  setOpen: (open) => set({ isOpen: open }),
+
+  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+
+  clearMessages: () =>
+    set({
+      messages: [
+        {
+          id: 'welcome',
+          role: 'assistant',
+          content:
+            "Hi! I'm your trading assistant. Ask me anything about markets, news, or technical analysis.",
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    }),
+
+  sendMessage: async (text, symbol) => {
+    const userMsg: ChatMessage = {
+      id: nextId(),
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    }
+
+    set((s) => ({
+      messages: [...s.messages, userMsg],
+      isLoading: true,
+    }))
+
+    try {
+      const history = formatHistory(get().messages)
+      const data = await sendChatMessage({
+        message: text,
+        symbol: symbol || 'QQQ',
+        chat_history: history,
+        session_id: get().sessionId || undefined,
+      })
+
+      const assistantMsg: ChatMessage = {
+        id: nextId(),
+        role: 'assistant',
+        content: data.response,
+        toolCalls: data.tool_calls?.map((tc) => ({
+          ...tc,
+          status: 'done' as const,
+        })),
+        timestamp: data.timestamp || new Date().toISOString(),
+      }
+
+      set((s) => ({
+        messages: [...s.messages, assistantMsg],
+        sessionId: data.session_id || s.sessionId,
+        isLoading: false,
+      }))
+    } catch (err) {
+      const errorMsg: ChatMessage = {
+        id: nextId(),
+        role: 'assistant',
+        content: `Error: ${err instanceof Error ? err.message : 'Something went wrong'}`,
+        timestamp: new Date().toISOString(),
+      }
+      set((s) => ({
+        messages: [...s.messages, errorMsg],
+        isLoading: false,
+      }))
+    }
+  },
+}))

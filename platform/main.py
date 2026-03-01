@@ -8,7 +8,7 @@ import sys
 import json
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import logging
 import logging.config
 
@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 # FastAPI and async imports
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +36,9 @@ from services.websocket_manager import AlpacaWebSocketManager
 from services.llm_service import LLMService
 from services.news_service import NewsService
 from services.twitter_service import TwitterService
+from services.agent_memory_service import AgentMemoryService
+from services.polymarket_service import PolymarketService
+from services.news_monitor_service import NewsMonitorService
 
 # Load config once at module level - shared by all services
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -102,12 +105,23 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# React frontend build directory
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+HAS_REACT_BUILD = os.path.isdir(FRONTEND_DIST) and os.path.isfile(
+    os.path.join(FRONTEND_DIST, "index.html")
+)
+if HAS_REACT_BUILD:
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="react-assets")
+
 # Global services
 prediction_service: Optional[PredictionService] = None
 websocket_manager: Optional[AlpacaWebSocketManager] = None
 llm_service: Optional[LLMService] = None
 news_service: Optional[NewsService] = None
 twitter_service: Optional[TwitterService] = None
+agent_memory: Optional[AgentMemoryService] = None
+polymarket_service: Optional[PolymarketService] = None
+news_monitor: Optional[NewsMonitorService] = None
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -260,29 +274,83 @@ async def initialize_websocket_manager():
         logger.error(f"Failed to initialize WebSocket manager: {e}")
         return False
 
+async def initialize_memory_service():
+    """Initialize the agent memory service (PostgreSQL + embeddings)."""
+    global agent_memory
+    try:
+        agent_memory = AgentMemoryService(app_config)
+        ok = await agent_memory.initialize()
+        if ok:
+            logger.info(
+                f"Agent memory service initialized "
+                f"(db={agent_memory.is_available()}, "
+                f"embeddings={agent_memory.embeddings_available()})"
+            )
+        else:
+            logger.warning("Agent memory service disabled or unavailable")
+            agent_memory = None
+    except Exception as e:
+        logger.warning(f"Agent memory service init failed (non-fatal): {e}")
+        agent_memory = None
+
+
+async def initialize_news_monitor():
+    """Initialize the background news monitoring service."""
+    global polymarket_service, news_monitor
+    try:
+        polymarket_service = PolymarketService(app_config)
+        news_monitor = NewsMonitorService(
+            config=app_config,
+            news_service=news_service,
+            twitter_service=twitter_service,
+            polymarket_service=polymarket_service,
+            broadcast_callback=manager.broadcast,
+        )
+        await news_monitor.start()
+    except Exception as e:
+        logger.warning(f"News monitor init failed (non-fatal): {e}")
+        news_monitor = None
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting FastAPI server...")
-    
+
     # Initialize services
     await initialize_prediction_service()
     await initialize_websocket_manager()
-    
+    await initialize_memory_service()
+    await initialize_news_monitor()
+
     logger.info("FastAPI server startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown"""
     logger.info("Shutting down FastAPI server...")
-    
+
     # Stop WebSocket manager if running
     if websocket_manager:
         try:
             websocket_manager.stop()
         except Exception as e:
             logger.warning(f"Error stopping WebSocket manager: {e}")
-    
+
+    # Stop news monitor
+    if news_monitor:
+        try:
+            await news_monitor.stop()
+        except Exception as e:
+            logger.warning(f"Error stopping news monitor: {e}")
+
+    # Close memory service DB connections
+    if agent_memory:
+        try:
+            await agent_memory.shutdown()
+        except Exception as e:
+            logger.warning(f"Error shutting down memory service: {e}")
+
     logger.info("FastAPI server shutdown complete")
 
 # Health check endpoint (for Docker HEALTHCHECK / load balancers)
@@ -298,6 +366,10 @@ async def health():
             "news": news_service.is_available() if news_service else False,
             "twitter": twitter_service.is_available() if twitter_service else False,
             "websocket": websocket_manager is not None,
+            "memory": agent_memory.is_available() if agent_memory else False,
+            "embeddings": agent_memory.embeddings_available() if agent_memory else False,
+            "news_monitor": news_monitor is not None and news_monitor._running,
+            "polymarket": polymarket_service.is_available() if polymarket_service else False,
         }
     }
 
@@ -305,7 +377,9 @@ async def health():
 # Routes
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Serve the main chart page"""
+    """Serve React SPA or legacy template"""
+    if HAS_REACT_BUILD:
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/api/initial_data")
@@ -568,6 +642,7 @@ class ChatRequest(BaseModel):
     """Request model for chat"""
     message: str
     symbol: Optional[str] = None
+    session_id: Optional[str] = None  # UUID string for persistent session
     chat_history: Optional[List[Dict[str, str]]] = None
     chart_screenshot: Optional[str] = None  # base64-encoded PNG screenshot of the chart
 
@@ -625,14 +700,44 @@ async def chat_endpoint(request: ChatRequest):
         if not symbol:
             symbol = prediction.get('symbol', 'QQQ')
 
+        # Build agent memory context (graceful if unavailable)
+        memory_context = ""
+        session_ctx = None
+        if agent_memory and agent_memory.is_available():
+            try:
+                # Get or create session for Tier C
+                session_ctx = agent_memory.get_or_create_session(
+                    session_id=request.session_id, symbol=symbol
+                )
+                # Build combined memory context from all tiers
+                memory_context = await agent_memory.build_memory_context(
+                    query=request.message,
+                    symbol=symbol,
+                    session_id=str(session_ctx.session_id),
+                )
+            except Exception as e:
+                logger.warning(f"Memory context build failed (non-fatal): {e}")
+
         # Get chat response
         response = await llm_service.chat_with_context(
             symbol=symbol,
             user_message=request.message,
             prediction_data=prediction,
             chat_history=request.chat_history,
-            chart_screenshot=request.chart_screenshot
+            chart_screenshot=request.chart_screenshot,
+            memory_context=memory_context,
         )
+
+        # Store messages in memory (async, non-blocking)
+        if agent_memory and agent_memory.is_available() and session_ctx:
+            try:
+                sid = session_ctx.session_id
+                await agent_memory.store_chat_message(sid, "user", request.message, symbol)
+                await agent_memory.store_chat_message(sid, "assistant", response, symbol)
+                agent_memory.add_turn(sid, "user", request.message)
+                agent_memory.add_turn(sid, "assistant", response)
+            except Exception as e:
+                logger.warning(f"Failed to store chat messages: {e}")
 
         # Parse and execute any drawing commands in the response
         draw_commands = parse_draw_commands(response)
@@ -649,6 +754,7 @@ async def chat_endpoint(request: ChatRequest):
         return {
             "response": response,
             "symbol": symbol,
+            "session_id": str(session_ctx.session_id) if session_ctx else None,
             "timestamp": datetime.now().isoformat(),
             "draw_commands": draw_commands
         }
@@ -796,6 +902,152 @@ async def llm_status_endpoint():
     }
 
 
+# ============== News Monitor Endpoints ==============
+
+
+@app.get("/api/news/feed")
+async def get_news_feed(category: str = "all", limit: int = 50):
+    """Get current news buffer (for initial page load / polling)."""
+    if not news_monitor:
+        return JSONResponse({"error": "News monitor not running"}, status_code=503)
+    items = news_monitor.get_buffer(category=category, limit=limit)
+    return {
+        "items": items,
+        "count": len(items),
+        "unread_count": news_monitor.get_unread_count(),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/news/monitor/status")
+async def news_monitor_status():
+    """Health check for the news monitoring service."""
+    return {
+        "running": news_monitor is not None and news_monitor._running,
+        "buffer_size": len(news_monitor._buffer) if news_monitor else 0,
+        "sources": {
+            "alpaca": news_service.is_available() if news_service else False,
+            "twitter": twitter_service.is_available() if twitter_service else False,
+            "polymarket": polymarket_service.is_available() if polymarket_service else False,
+        },
+    }
+
+
+# ============== Agent Memory Endpoints ==============
+
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    symbol: Optional[str] = None
+    memory_type: Optional[str] = None
+    limit: int = 5
+
+
+class StoreDecisionRequest(BaseModel):
+    decision_text: str
+    parsed_rule: Optional[Dict[str, Any]] = None
+    source: str = "manual"
+
+
+class StoreMemoryRequest(BaseModel):
+    content: str
+    memory_type: str = "experience"
+    source: str = "manual"
+    symbol: Optional[str] = None
+    importance_score: float = 0.50
+
+
+class SetPreferenceRequest(BaseModel):
+    category: str
+    key: str
+    value: Any
+
+
+@app.get("/api/memory/search")
+async def memory_search(query: str, symbol: Optional[str] = None, limit: int = 5):
+    """Semantic search over agent memories (vector RAG)."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    results = await agent_memory.recall_memories(query, limit=limit, symbol=symbol)
+    return {"results": results, "count": len(results)}
+
+
+@app.post("/api/memory/store")
+async def memory_store(request: StoreMemoryRequest):
+    """Store a new memory manually."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    result = await agent_memory.store_memory(
+        content=request.content,
+        memory_type=request.memory_type,
+        source=request.source,
+        symbol=request.symbol,
+        importance_score=request.importance_score,
+    )
+    if result:
+        return result
+    return JSONResponse({"error": "Failed to store memory (embeddings unavailable?)"}, status_code=500)
+
+
+@app.get("/api/memory/decisions")
+async def memory_decisions(symbol: Optional[str] = None, active_only: bool = True):
+    """Get trading decisions."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    decisions = await agent_memory.get_active_decisions(symbol=symbol)
+    return {"decisions": decisions, "count": len(decisions)}
+
+
+@app.post("/api/memory/decisions")
+async def memory_store_decision(request: StoreDecisionRequest):
+    """Store a new trading decision."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    result = await agent_memory.store_decision(
+        decision_text=request.decision_text,
+        parsed_rule=request.parsed_rule,
+        source=request.source,
+    )
+    return result
+
+
+@app.get("/api/memory/chat_history")
+async def memory_chat_history(session_id: str, limit: int = 50):
+    """Get chat history for a session."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    import uuid as _uuid
+    history = await agent_memory.get_chat_history(_uuid.UUID(session_id), limit=limit)
+    return {"messages": history, "count": len(history)}
+
+
+@app.get("/api/memory/preferences/{category}")
+async def memory_preferences(category: str):
+    """Get user preferences by category."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    prefs = await agent_memory.get_preferences_by_category(category)
+    return {"category": category, "preferences": prefs}
+
+
+@app.put("/api/memory/preferences")
+async def memory_set_preference(request: SetPreferenceRequest):
+    """Set a user preference."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    await agent_memory.set_user_preference(request.category, request.key, request.value)
+    return {"status": "ok", "category": request.category, "key": request.key}
+
+
+@app.get("/api/memory/signals")
+async def memory_signals(symbol: Optional[str] = None, limit: int = 20):
+    """Get recent trading signals."""
+    if not agent_memory or not agent_memory.is_available():
+        return JSONResponse({"error": "Memory service not available"}, status_code=503)
+    signals = await agent_memory.get_recent_signals(symbol=symbol, limit=limit)
+    return {"signals": signals, "count": len(signals)}
+
+
 # ============== Market Regime Endpoints ==============
 
 
@@ -926,12 +1178,25 @@ async def websocket_endpoint(websocket: WebSocket):
                         "type": "error",
                         "message": str(e)
                     }, websocket)
-            
+
+            elif message_type == "news_ack":
+                # Client acknowledges reading news, reset unread counter
+                if news_monitor:
+                    news_monitor.reset_unread_count()
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+
+# SPA catch-all — serves React index.html for client-side routes
+# MUST be the last route to avoid shadowing /api/* and /ws
+@app.get("/{full_path:path}")
+async def serve_spa(request: Request, full_path: str):
+    if HAS_REACT_BUILD:
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+    return templates.TemplateResponse("index.html", {"request": request})
 
 if __name__ == "__main__":
     import uvicorn

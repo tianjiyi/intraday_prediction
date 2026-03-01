@@ -955,6 +955,11 @@ function initWebSocket() {
                 }
                 break;
                 
+            case 'news_update':
+                console.log('News update:', data.items?.length, 'items');
+                if (typeof handleNewsUpdate === 'function') handleNewsUpdate(data);
+                break;
+
             case 'stream_status':
                 console.log('Stream status:', data);
                 isStreamingActive = data.connected;
@@ -2015,6 +2020,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize chat
     initChat();
+
+    // Initialize news dashboard
+    if (typeof initNewsDashboard === 'function') initNewsDashboard();
 
 });
 

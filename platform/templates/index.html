@@ -160,151 +160,185 @@
                 </div>
             </div>
 
-            <!-- Stats Panel -->
-            <div class="stats-panel">
-                <h3>📊 Prediction Statistics</h3>
-                
-                <div class="stat-group">
-                    <div class="stat-item">
-                        <label>Current Price:</label>
-                        <span id="current-price" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Predicted (30m):</label>
-                        <span id="predicted-price" class="value">--</span>
-                    </div>
+            <!-- Right Panel (Stats / News toggle) -->
+            <div class="right-panel">
+                <div class="right-panel-toggle">
+                    <button class="panel-toggle-btn active" data-panel="stats">Stats</button>
+                    <button class="panel-toggle-btn" data-panel="news">News <span id="news-badge" class="news-badge" style="display:none;">0</span></button>
                 </div>
 
-                <div class="stat-group">
-                    <div class="stat-item">
-                        <label>Probability Up:</label>
-                        <div class="progress-container">
-                            <div id="prob-up-bar" class="progress-bar"></div>
-                            <span id="prob-up" class="value-overlay">--</span>
+                <!-- Stats View -->
+                <div class="panel-view active" id="view-stats">
+                    <div class="stats-panel-inner">
+                        <h3>Prediction Statistics</h3>
+
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>Current Price:</label>
+                                <span id="current-price" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Predicted (30m):</label>
+                                <span id="predicted-price" class="value">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>Probability Up:</label>
+                                <div class="progress-container">
+                                    <div id="prob-up-bar" class="progress-bar"></div>
+                                    <span id="prob-up" class="value-overlay">--</span>
+                                </div>
+                            </div>
+                            <div class="stat-item">
+                                <label>Expected Return:</label>
+                                <span id="exp-return" class="value">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group">
+                            <h4>Confidence Intervals</h4>
+                            <div class="stat-item">
+                                <label>90th Percentile:</label>
+                                <span id="p90" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>75th Percentile:</label>
+                                <span id="p75" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Median (50th):</label>
+                                <span id="p50" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>25th Percentile:</label>
+                                <span id="p25" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>10th Percentile:</label>
+                                <span id="p10" class="value">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group">
+                            <h4>Intraday Indicators</h4>
+                            <div class="stat-item">
+                                <label>VWAP:</label>
+                                <span id="vwap" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Bollinger Upper:</label>
+                                <span id="bb-upper" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Bollinger Middle:</label>
+                                <span id="bb-middle" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Bollinger Lower:</label>
+                                <span id="bb-lower" class="value">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group daily-fundamentals">
+                            <h4>Daily Fundamentals</h4>
+                            <div class="stat-item">
+                                <label>Daily SMA 5:</label>
+                                <span id="daily-sma5" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Daily SMA 21:</label>
+                                <span id="daily-sma21" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Daily SMA 233:</label>
+                                <span id="daily-sma233" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Daily RSI (14):</label>
+                                <span id="daily-rsi" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Daily CCI (20):</label>
+                                <span id="daily-cci" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Daily Trend:</label>
+                                <span id="daily-trend" class="value trend-unknown">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group daily-levels">
+                            <h4>Key Daily Levels</h4>
+                            <div class="stat-item">
+                                <label>Prev Day High:</label>
+                                <span id="prev-day-high" class="value level-resistance">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Prev Day Low:</label>
+                                <span id="prev-day-low" class="value level-support">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Prev Day Close:</label>
+                                <span id="prev-day-close" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>3-Day High:</label>
+                                <span id="three-day-high" class="value level-resistance">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>3-Day Low:</label>
+                                <span id="three-day-low" class="value level-support">--</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>Model:</label>
+                                <span id="model-name" class="value">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Samples:</label>
+                                <span id="n-samples" class="value">100</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Horizon:</label>
+                                <span class="value">30 min</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Trading Hours:</label>
+                                <span id="rth-status" class="value">RTH Only</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Data Bars:</label>
+                                <span id="data-bars" class="value">--</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="stat-item">
-                        <label>Expected Return:</label>
-                        <span id="exp-return" class="value">--</span>
-                    </div>
                 </div>
 
-                <div class="stat-group">
-                    <h4>Confidence Intervals</h4>
-                    <div class="stat-item">
-                        <label>90th Percentile:</label>
-                        <span id="p90" class="value">--</span>
+                <!-- News View -->
+                <div class="panel-view" id="view-news">
+                    <div class="news-header">
+                        <div class="news-status">
+                            <span class="news-live-dot" id="news-live-dot"></span>
+                            <span id="news-item-count">0 items</span>
+                            <span id="news-last-poll">--</span>
+                        </div>
                     </div>
-                    <div class="stat-item">
-                        <label>75th Percentile:</label>
-                        <span id="p75" class="value">--</span>
+                    <div class="news-category-tabs">
+                        <button class="news-cat-btn active" data-category="all">All</button>
+                        <button class="news-cat-btn" data-category="tech">Tech</button>
+                        <button class="news-cat-btn" data-category="financial">Fin</button>
+                        <button class="news-cat-btn" data-category="geopolitical">Geo</button>
+                        <button class="news-cat-btn" data-category="prediction_market">Mkt</button>
                     </div>
-                    <div class="stat-item">
-                        <label>Median (50th):</label>
-                        <span id="p50" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>25th Percentile:</label>
-                        <span id="p25" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>10th Percentile:</label>
-                        <span id="p10" class="value">--</span>
-                    </div>
-                </div>
-
-                <div class="stat-group">
-                    <h4>Intraday Indicators</h4>
-                    <div class="stat-item">
-                        <label>VWAP:</label>
-                        <span id="vwap" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Bollinger Upper:</label>
-                        <span id="bb-upper" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Bollinger Middle:</label>
-                        <span id="bb-middle" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Bollinger Lower:</label>
-                        <span id="bb-lower" class="value">--</span>
-                    </div>
-                </div>
-
-                <div class="stat-group daily-fundamentals">
-                    <h4>📊 Daily Fundamentals</h4>
-                    <div class="stat-item">
-                        <label>Daily SMA 5:</label>
-                        <span id="daily-sma5" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Daily SMA 21:</label>
-                        <span id="daily-sma21" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Daily SMA 233:</label>
-                        <span id="daily-sma233" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Daily RSI (14):</label>
-                        <span id="daily-rsi" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Daily CCI (20):</label>
-                        <span id="daily-cci" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Daily Trend:</label>
-                        <span id="daily-trend" class="value trend-unknown">--</span>
-                    </div>
-                </div>
-
-                <div class="stat-group daily-levels">
-                    <h4>📍 Key Daily Levels</h4>
-                    <div class="stat-item">
-                        <label>Prev Day High:</label>
-                        <span id="prev-day-high" class="value level-resistance">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Prev Day Low:</label>
-                        <span id="prev-day-low" class="value level-support">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Prev Day Close:</label>
-                        <span id="prev-day-close" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>3-Day High:</label>
-                        <span id="three-day-high" class="value level-resistance">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>3-Day Low:</label>
-                        <span id="three-day-low" class="value level-support">--</span>
-                    </div>
-                </div>
-
-                <div class="stat-group">
-                    <div class="stat-item">
-                        <label>Model:</label>
-                        <span id="model-name" class="value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Samples:</label>
-                        <span id="n-samples" class="value">100</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Horizon:</label>
-                        <span class="value">30 min</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Trading Hours:</label>
-                        <span id="rth-status" class="value">RTH Only</span>
-                    </div>
-                    <div class="stat-item">
-                        <label>Data Bars:</label>
-                        <span id="data-bars" class="value">--</span>
+                    <div class="news-feed" id="news-feed">
+                        <div class="news-empty-state">
+                            <p>Monitoring news sources...</p>
+                            <p class="news-empty-sub">Items will appear as they arrive from Alpaca, X.com, and Polymarket.</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -317,6 +351,7 @@
     </div>
 
     <!-- Custom JavaScript -->
+    <script src="/static/js/news.js"></script>
     <script src="/static/js/chart.js"></script>
 </body>
 </html>

@@ -1,0 +1,80 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.symbol {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.live {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--red);
+  background: rgba(239, 83, 80, 0.15);
+  border: 1px solid var(--red);
+  border-radius: 3px;
+  padding: 1px 6px;
+  letter-spacing: 0.5px;
+}
+
+.timeframes {
+  display: flex;
+  gap: 2px;
+}
+
+.tfBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 3px 9px;
+  border-radius: 3px;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.tfBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.tfBtn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(41, 98, 255, 0.1);
+}
+
+.toggles {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.toggle {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+.toggle.on {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.toggle:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}

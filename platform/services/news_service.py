@@ -8,7 +8,6 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import pytz
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -105,27 +104,27 @@ class NewsService:
             # Fetch news
             news_response = self.news_client.get_news(request)
 
-            # Convert to DataFrame - this is the recommended way per alpaca-py docs
+            # Iterate over raw news items (avoids fragile .df conversion)
             news_items = []
-            try:
-                df = news_response.df
-                logger.info(f"News DataFrame shape: {df.shape}, columns: {list(df.columns)}")
-
-                for idx, row in df.iterrows():
-                    news_items.append({
-                        'id': str(idx) if idx else '',
-                        'headline': row.get('headline', 'No headline') or 'No headline',
-                        'summary': row.get('summary', '') or '',
-                        'source': row.get('source', 'Unknown') or 'Unknown',
-                        'author': row.get('author', 'Unknown') or 'Unknown',
-                        'created_at': row.get('created_at').isoformat() if pd.notna(row.get('created_at')) else '',
-                        'updated_at': row.get('updated_at').isoformat() if pd.notna(row.get('updated_at')) else '',
-                        'url': row.get('url', '') or '',
-                        'symbols': row.get('symbols', []) or [],
-                        'images': []
-                    })
-            except Exception as df_err:
-                logger.warning(f"Could not convert news to DataFrame: {df_err}")
+            raw_data = news_response.data if hasattr(news_response, 'data') else {}
+            news_list = raw_data.get('news', []) if isinstance(raw_data, dict) else []
+            for item in news_list:
+                d = item if isinstance(item, dict) else (item.model_dump() if hasattr(item, 'model_dump') else item.__dict__)
+                created = d.get('created_at')
+                updated = d.get('updated_at')
+                images = d.get('images') or []
+                news_items.append({
+                    'id': str(d.get('id', '')),
+                    'headline': d.get('headline') or 'No headline',
+                    'summary': d.get('summary', '') or '',
+                    'source': d.get('source') or 'Unknown',
+                    'author': d.get('author') or 'Unknown',
+                    'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created or ''),
+                    'updated_at': updated.isoformat() if hasattr(updated, 'isoformat') else str(updated or ''),
+                    'url': d.get('url', '') or '',
+                    'symbols': d.get('symbols') or [],
+                    'images': [img.get('url', '') if isinstance(img, dict) else getattr(img, 'url', '') for img in images]
+                })
 
             logger.info(f"Fetched {len(news_items)} news items for {symbol}")
             # Log headlines for debugging
@@ -170,25 +169,23 @@ class NewsService:
 
             news_response = self.news_client.get_news(request)
 
-            # Convert to DataFrame
+            # Iterate over raw news items (avoids fragile .df conversion)
             news_items = []
-            try:
-                df = news_response.df
-                logger.info(f"Market news DataFrame shape: {df.shape}")
-
-                for idx, row in df.iterrows():
-                    news_items.append({
-                        'id': str(idx) if idx else '',
-                        'headline': row.get('headline', 'No headline') or 'No headline',
-                        'summary': row.get('summary', '') or '',
-                        'source': row.get('source', 'Unknown') or 'Unknown',
-                        'author': row.get('author', 'Unknown') or 'Unknown',
-                        'created_at': row.get('created_at').isoformat() if pd.notna(row.get('created_at')) else '',
-                        'url': row.get('url', '') or '',
-                        'symbols': row.get('symbols', []) or []
-                    })
-            except Exception as df_err:
-                logger.warning(f"Could not convert market news to DataFrame: {df_err}")
+            raw_data = news_response.data if hasattr(news_response, 'data') else {}
+            news_list = raw_data.get('news', []) if isinstance(raw_data, dict) else []
+            for item in news_list:
+                d = item if isinstance(item, dict) else (item.model_dump() if hasattr(item, 'model_dump') else item.__dict__)
+                created = d.get('created_at')
+                news_items.append({
+                    'id': str(d.get('id', '')),
+                    'headline': d.get('headline') or 'No headline',
+                    'summary': d.get('summary', '') or '',
+                    'source': d.get('source') or 'Unknown',
+                    'author': d.get('author') or 'Unknown',
+                    'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created or ''),
+                    'url': d.get('url', '') or '',
+                    'symbols': d.get('symbols') or []
+                })
 
             logger.info(f"Fetched {len(news_items)} general market news items")
             return news_items

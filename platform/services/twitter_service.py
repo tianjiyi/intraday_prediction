@@ -54,55 +54,78 @@ class TwitterService:
         if not self.enabled:
             return []
 
-        # Clean symbol
         clean_symbol = symbol.replace('/USD', '').replace('/', '').upper()
+        lang = self.twitter_config.get('lang', 'en')
+        query = f"(${clean_symbol} OR #{clean_symbol}) -is:retweet lang:{lang}"
 
-        # Check cache
-        cache_key = f"{clean_symbol}:{limit}:{hours_back}"
+        return await self._search_cached(query, limit, hours_back, symbols=[clean_symbol])
+
+    async def search_by_query(
+        self,
+        query: str,
+        limit: int = 20,
+        hours_back: int = 24
+    ) -> List[Dict[str, Any]]:
+        """
+        Search tweets with an arbitrary query string.
+
+        Supports broad topic searches like "US tech stocks market" or "$QQQ OR $SPY".
+        """
+        if not self.enabled:
+            return []
+
+        lang = self.twitter_config.get('lang', 'en')
+        full_query = f"({query}) -is:retweet lang:{lang}"
+        return await self._search_cached(full_query, limit, hours_back)
+
+    async def _search_cached(
+        self,
+        query: str,
+        limit: int,
+        hours_back: int,
+        symbols: List[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Cache wrapper around _fetch_tweets_raw."""
+        cache_key = f"{query}:{limit}:{hours_back}"
         if cache_key in self._cache:
             cached_time, cached_results = self._cache[cache_key]
             if time.time() - cached_time < self._cache_ttl:
-                logger.debug(f"Twitter cache hit for {clean_symbol}")
                 return cached_results
 
         try:
-            results = await self._fetch_tweets(clean_symbol, limit, hours_back)
+            results = await self._fetch_tweets_raw(query, limit, hours_back, symbols)
             self._cache[cache_key] = (time.time(), results)
             return results
         except Exception as e:
-            logger.error(f"Error searching tweets for {symbol}: {e}")
+            logger.error(f"Error searching tweets: {e}")
             return []
 
-    async def _fetch_tweets(
+    async def _fetch_tweets_raw(
         self,
-        symbol: str,
+        query: str,
         limit: int,
-        hours_back: int
+        hours_back: int,
+        symbols: List[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Call X API v2 /tweets/search/recent"""
-        lang = self.twitter_config.get('lang', 'en')
+        """Call X API v2 /tweets/search/recent with any query."""
         min_likes = self.twitter_config.get('min_likes', 5)
-
-        # Build search query: cashtag + hashtag, no retweets, English
-        query = f"(${symbol} OR #{symbol}) -is:retweet lang:{lang}"
-
-        # Time window
         start_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
 
         params = {
             'query': query,
-            'max_results': max(10, min(limit, 100)),  # API requires 10-100
+            'max_results': max(10, min(limit, 100)),
             'start_time': start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'tweet.fields': 'created_at,public_metrics,author_id,text',
             'user.fields': 'username,name',
             'expansions': 'author_id',
+            'sort_order': self.twitter_config.get('sort_order', 'recency'),
         }
 
         headers = {
             'Authorization': f'Bearer {self.bearer_token}',
         }
 
-        logger.info(f"Fetching tweets: query=\"{query}\" limit={limit} hours_back={hours_back}")
+        logger.info(f"Fetching tweets: query=\"{query[:80]}\" limit={limit} hours_back={hours_back}")
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -123,7 +146,7 @@ class TwitterService:
 
         tweets = data.get('data', [])
         if not tweets:
-            logger.info(f"No tweets found for {symbol}")
+            logger.info(f"No tweets found for query")
             return []
 
         # Build author lookup from includes
@@ -151,16 +174,19 @@ class TwitterService:
                 'author': f"@{username}" if username else 'Unknown',
                 'created_at': tweet.get('created_at', ''),
                 'url': f"https://x.com/{username}/status/{tweet_id}" if username else '',
-                'symbols': [symbol],
+                'symbols': symbols or [],
                 'images': [],
                 'likes': metrics.get('like_count', 0),
                 'retweets': metrics.get('retweet_count', 0),
+                'views': metrics.get('impression_count', 0),
             })
 
-        logger.info(f"Fetched {len(results)} tweets for {symbol} (from {len(tweets)} total, min_likes={min_likes})")
-        for i, item in enumerate(results[:3]):
-            logger.info(f"  Tweet {i+1}: [{item['author']}] {item['headline']}")
+        # Sort by engagement score: retweets strongest signal, then likes, then views
+        results.sort(key=lambda t: (
+            t.get('retweets', 0) * 3 + t.get('likes', 0) + t.get('views', 0) * 0.001
+        ), reverse=True)
 
+        logger.info(f"Fetched {len(results)} tweets (from {len(tweets)} total, min_likes={min_likes})")
         return results
 
     def get_sentiment_keywords(self, items: List[Dict[str, Any]]) -> Dict[str, int]:

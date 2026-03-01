@@ -558,7 +558,8 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
         user_message: str,
         prediction_data: Dict[str, Any],
         chat_history: List[Dict[str, str]] = None,
-        chart_screenshot: Optional[str] = None
+        chart_screenshot: Optional[str] = None,
+        memory_context: str = "",
     ) -> str:
         """
         Chat with the LLM using current market context
@@ -569,6 +570,7 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
             prediction_data: Current prediction data with indicators
             chat_history: Previous chat messages for context
             chart_screenshot: Base64-encoded PNG screenshot of the chart (optional)
+            memory_context: Pre-built agent memory context string (from AgentMemoryService)
 
         Returns:
             LLM response
@@ -671,9 +673,15 @@ A screenshot of the current chart is attached. Use this visual information to:
 - Point out any visual patterns the trader should notice
 """
 
+        # Inject agent memory context if available
+        memory_section = ""
+        if memory_context:
+            memory_section = f"\n{memory_context}\n"
+
         prompt = f"""You are an expert intraday trading assistant with access to real-time market data. You help traders make informed decisions based on technical analysis.
 
 {market_context}
+{memory_section}
 {visual_context}
 {history_text}
 ## User's Question:

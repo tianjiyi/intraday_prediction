@@ -1,0 +1,41 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.main.withChat {
+  flex: 1;
+}
+
+.chatPanel {
+  width: 380px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .chatPanel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 380px;
+    z-index: 200;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  }
+}
