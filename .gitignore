@@ -1,3 +1,10 @@
+# ==========================================
+# Data artifacts (large files, not in git)
+# ==========================================
+data/
+*.pt
+*.db
+
 # Sensitive configuration files
 config.yaml
 *.env
@@ -44,8 +51,6 @@ ENV/
 *.pkl
 *.pth
 *.bin
-*checkpoints/
-*cache/
 
 # Logs
 *.log
@@ -59,21 +64,14 @@ Thumbs.db
 *.tmp
 *.temp
 temp/
+nul
 
 # API keys and secrets
-*secret*
-*key*
-*token*
 credentials/
 
 # Output files
 output/
 results/
-plots/
-*.png
-*.jpg
-*.jpeg
-*.pdf
 
-# Specific output folder
-/output/
+# Legacy directories (pre-reorganization)
+live_chart_prediction/

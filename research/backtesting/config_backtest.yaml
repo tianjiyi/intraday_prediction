@@ -1,0 +1,100 @@
+# Kronos Model Backtesting Configuration
+
+# Backtesting Parameters
+backtest:
+  # Date range for backtesting (use dates where market data exists)
+  start_date: "2025-09-02"  # YYYY-MM-DD (Tuesday after Labor Day)
+  end_date: "2025-09-05"     # YYYY-MM-DD (Friday)
+
+  # Symbols to test
+  symbols:
+    - "QQQ"
+    - "SPY"
+    - "AAPL"
+    - "TSLA"
+
+  # Timeframes to test
+  timeframes:
+    - "1Min"
+    - "5Min"
+
+  # Prediction horizon (must match live system)
+  horizon_minutes: 30  # 30 minutes ahead prediction
+
+  # Rolling window configuration
+  rolling_window:
+    step_size_minutes: 30  # How often to generate predictions
+    min_context_bars: 480  # Minimum bars needed for prediction
+
+  # Market hours (for RTH filtering)
+  market_hours:
+    start: "09:30"  # ET
+    end: "16:00"    # ET
+    rth_only: true
+
+# Evaluation Metrics
+metrics:
+  # Classification (direction prediction)
+  classification:
+    enabled: true
+    threshold: 0.0  # Price change threshold for up/down classification
+
+  # Regression (price level prediction)
+  regression:
+    enabled: true
+
+  # Probabilistic (uncertainty calibration)
+  probabilistic:
+    enabled: true
+
+# Visualization Settings
+visualization:
+  save_plots: true
+  output_formats: ["png", "html"]
+  dpi: 300
+  style: "dark_background"  # matplotlib style
+
+  # Which plots to generate
+  plots:
+    roc_curve: true
+    confusion_matrix: true
+    prediction_vs_actual: true
+    price_trajectory: true
+    calibration_curve: true
+    residual_plot: true
+
+# Output Configuration
+output:
+  base_dir: "./backtesting/results"
+  save_predictions: true      # Save all predictions to CSV
+  save_metrics: true          # Save metrics to JSON
+  save_summary: true          # Save summary report to TXT
+
+  # Result organization
+  organize_by_symbol: true
+  organize_by_date: true
+
+# Model Configuration (inherits from parent config.yaml)
+# Override if needed for backtesting
+model:
+  use_parent_config: true
+  # checkpoint: "NeoQuasar/Kronos-base"  # Optional override
+  # device: "cuda:0"
+
+# Sampling for Backtesting
+sampling:
+  n_samples: 25         # Monte Carlo samples per prediction (reduced from 100 for faster backtesting)
+  temperature: 1.0
+  top_p: 0.9
+
+# Performance
+performance:
+  batch_size: 1         # Predictions to batch (1 = sequential)
+  max_workers: 1        # Parallel workers (1 = single threaded)
+  cache_historical: true  # Cache historical data to reduce API calls
+
+# Logging
+logging:
+  level: "INFO"
+  save_to_file: true
+  log_file: "./backtesting/results/backtest.log"

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQQ Live Prediction Chart - Kronos Model</title>
+    
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+
+    <!-- html2canvas for chart screenshot capture -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1>🚀 Kronos Prediction</h1>
+                <div class="header-controls">
+                    <select id="ticker-select" class="header-select">
+                        <optgroup label="Stocks">
+                            <option value="QQQ" selected>QQQ</option>
+                            <option value="SPY">SPY</option>
+                            <option value="AAPL">AAPL</option>
+                            <option value="TSLA">TSLA</option>
+                            <option value="MSFT">MSFT</option>
+                            <option value="NVDA">NVDA</option>
+                            <option value="META">META</option>
+                            <option value="BABA">BABA</option>
+                        </optgroup>
+                        <optgroup label="Crypto">
+                            <option value="BTC/USD">Bitcoin (BTC/USD)</option>
+                            <option value="ETH/USD">Ethereum (ETH/USD)</option>
+                            <option value="LTC/USD">Litecoin (LTC/USD)</option>
+                            <option value="DOGE/USD">Dogecoin (DOGE/USD)</option>
+                        </optgroup>
+                    </select>
+                    <select id="timeframe-select" class="header-select">
+                        <option value="1" selected>1 min</option>
+                        <option value="5">5 min</option>
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="1440">Day</option>
+                        <option value="10080">Week</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="status-bar">
+                <span id="stream-status" class="stream-status"></span>
+                <span id="connection-status" class="status disconnected">● Disconnected</span>
+                <span id="last-update">Last Update: --</span>
+                <span id="timezone-info" class="timezone-info"></span>
+                <button id="refresh-btn" class="btn-refresh">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- LLM Analysis Panel (Left) -->
+            <div class="analysis-panel" id="analysis-panel">
+                <div class="analysis-header">
+                    <h3>🤖 AI Analysis</h3>
+                    <button id="toggle-analysis-panel" class="btn-toggle" title="Toggle Panel">◀</button>
+                </div>
+
+                <div class="analysis-controls">
+                    <button id="analyze-btn" class="btn-analyze">✨ Analyze</button>
+                    <select id="analysis-type">
+                        <option value="highlights" selected>Daily Highlights</option>
+                        <option value="full">Full Analysis</option>
+                        <option value="technical">Technical Only</option>
+                        <option value="rules">Rules Check</option>
+                        <option value="sentiment">Sentiment Only</option>
+                    </select>
+                </div>
+
+                <div class="analysis-status" id="analysis-status">
+                    <span class="status-indicator" id="llm-status-indicator">●</span>
+                    <span id="llm-status-text">Checking LLM status...</span>
+                </div>
+
+                <div class="analysis-tabs">
+                    <button class="tab-btn active" data-tab="highlights">⚡ Highlights</button>
+                    <button class="tab-btn" data-tab="technical">📈 Technical</button>
+                    <button class="tab-btn" data-tab="rules">📋 Rules</button>
+                    <button class="tab-btn" data-tab="sentiment">📰 Sentiment</button>
+                    <button class="tab-btn" data-tab="chat">💬 Chat</button>
+                </div>
+
+                <div class="analysis-content">
+                    <div class="tab-content active" id="tab-highlights">
+                        <div class="analysis-text" id="highlights-analysis">
+                            <p class="placeholder">Click "Analyze" to get daily highlights: sentiment, day type, and key levels.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-technical">
+                        <div class="analysis-text" id="technical-analysis">
+                            <p class="placeholder">Click "Analyze" to get AI-powered technical analysis based on Kronos predictions.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-rules">
+                        <div class="analysis-text" id="rules-analysis">
+                            <p class="placeholder">Click "Analyze" to check trading rules compliance.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-sentiment">
+                        <div class="analysis-text" id="sentiment-analysis">
+                            <p class="placeholder">Click "Analyze" to get market sentiment from news.</p>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-chat">
+                        <div class="chat-container">
+                            <div class="chat-messages" id="chat-messages">
+                                <div class="chat-message assistant">
+                                    <div class="message-content">
+                                        👋 Hi! I'm your trading assistant. Ask me anything about the current market conditions, technical analysis, or trading rules. I have access to all the live data and indicators.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chat-input-area">
+                                <input type="text" id="chat-input" placeholder="Ask about the market..." autocomplete="off">
+                                <button id="chat-send-btn" class="btn-chat-send">Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analysis-timestamp" id="analysis-timestamp"></div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="chart-container">
+                <div class="chart-toolbar">
+                    <button id="toggle-predictions" class="btn-tool active" title="Toggle Predictions">🔮 Pred</button>
+                    <button id="toggle-confidence" class="btn-tool active" title="Toggle Confidence Bands">📊 Conf</button>
+                    <button id="toggle-indicators" class="btn-tool active" title="Toggle Indicators">📈 Ind</button>
+                    <button id="toggle-sma" class="btn-tool active" title="Toggle SMAs">〰 SMA</button>
+                </div>
+                <div class="charts-wrapper">
+                    <div id="chart"></div>
+                    <div class="chart-divider" id="chart-divider">
+                        <div class="divider-handle"></div>
+                    </div>
+                    <div id="volume-chart"></div>
+                </div>
+                <!-- Price Overlay -->
+                <div class="price-overlay">
+                    <div class="ticker-symbol" id="ticker-symbol">QQQ</div>
+                    <div class="ohlc-prices">
+                        <span class="price-item">O: <span id="overlay-open">--</span></span>
+                        <span class="price-item">H: <span id="overlay-high">--</span></span>
+                        <span class="price-item">L: <span id="overlay-low">--</span></span>
+                        <span class="price-item">C: <span id="overlay-close">--</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Panel -->
+            <div class="stats-panel">
+                <h3>📊 Prediction Statistics</h3>
+                
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Current Price:</label>
+                        <span id="current-price" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Predicted (30m):</label>
+                        <span id="predicted-price" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Probability Up:</label>
+                        <div class="progress-container">
+                            <div id="prob-up-bar" class="progress-bar"></div>
+                            <span id="prob-up" class="value-overlay">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <label>Expected Return:</label>
+                        <span id="exp-return" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <h4>Confidence Intervals</h4>
+                    <div class="stat-item">
+                        <label>90th Percentile:</label>
+                        <span id="p90" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>75th Percentile:</label>
+                        <span id="p75" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Median (50th):</label>
+                        <span id="p50" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>25th Percentile:</label>
+                        <span id="p25" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>10th Percentile:</label>
+                        <span id="p10" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <h4>Intraday Indicators</h4>
+                    <div class="stat-item">
+                        <label>VWAP:</label>
+                        <span id="vwap" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Upper:</label>
+                        <span id="bb-upper" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Middle:</label>
+                        <span id="bb-middle" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Bollinger Lower:</label>
+                        <span id="bb-lower" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group daily-fundamentals">
+                    <h4>📊 Daily Fundamentals</h4>
+                    <div class="stat-item">
+                        <label>Daily SMA 5:</label>
+                        <span id="daily-sma5" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily SMA 21:</label>
+                        <span id="daily-sma21" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily SMA 233:</label>
+                        <span id="daily-sma233" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily RSI (14):</label>
+                        <span id="daily-rsi" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily CCI (20):</label>
+                        <span id="daily-cci" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Daily Trend:</label>
+                        <span id="daily-trend" class="value trend-unknown">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group daily-levels">
+                    <h4>📍 Key Daily Levels</h4>
+                    <div class="stat-item">
+                        <label>Prev Day High:</label>
+                        <span id="prev-day-high" class="value level-resistance">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Prev Day Low:</label>
+                        <span id="prev-day-low" class="value level-support">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Prev Day Close:</label>
+                        <span id="prev-day-close" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>3-Day High:</label>
+                        <span id="three-day-high" class="value level-resistance">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>3-Day Low:</label>
+                        <span id="three-day-low" class="value level-support">--</span>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <label>Model:</label>
+                        <span id="model-name" class="value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Samples:</label>
+                        <span id="n-samples" class="value">100</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Horizon:</label>
+                        <span class="value">30 min</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Trading Hours:</label>
+                        <span id="rth-status" class="value">RTH Only</span>
+                    </div>
+                    <div class="stat-item">
+                        <label>Data Bars:</label>
+                        <span id="data-bars" class="value">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>Powered by Kronos Model | Data from Alpaca Markets | Charts by TradingView Lightweight Charts</p>
+        </div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="/static/js/chart.js"></script>
+</body>
+</html>

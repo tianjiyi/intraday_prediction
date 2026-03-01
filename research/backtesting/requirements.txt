@@ -1,0 +1,21 @@
+# Backtesting Framework Dependencies
+
+# Core scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Machine learning metrics
+scikit-learn>=1.0.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Configuration
+PyYAML>=6.0
+
+# Inherited from parent (live_chart_prediction)
+# These should already be installed from ../live_chart_prediction/requirements.txt
+# - alpaca-py>=0.9.0
+# - torch>=2.0.0
+# - transformers>=4.30.0

@@ -1,70 +1,81 @@
 # Intraday Prediction Project
 
 ## Project Overview
-This is an intraday prediction project focused on financial market analysis and prediction.
+An agentic AI trading platform for intraday financial market analysis and prediction. Combines the Kronos foundation model for probabilistic forecasting with LLM-powered analysis (Google Gemini) and real-time market data streaming.
 
 ## Project Structure
-- **Working Directory**: `C:\Users\skysn\workspace\intraday_predication`
-- **Platform**: Windows (win32)
+
+```
+intraday_predication/
+├── platform/                  # PRODUCTION: Live web app (FastAPI + TradingView)
+│   ├── main.py                # FastAPI entry point
+│   ├── config.yaml            # App configuration (API keys, model settings)
+│   ├── requirements.txt       # Python dependencies
+│   ├── trading_rules.md       # AI-enforced trading rules
+│   ├── services/              # Backend service modules
+│   │   ├── prediction_service.py   # Kronos model integration
+│   │   ├── llm_service.py         # Gemini LLM analysis
+│   │   ├── news_service.py        # Alpaca News API
+│   │   └── websocket_manager.py   # Real-time Alpaca streaming
+│   ├── static/js/chart.js    # TradingView chart + WebSocket client
+│   ├── static/css/style.css   # Dark theme styling
+│   └── templates/index.html   # Main dashboard template
+│
+├── research/                  # RESEARCH: Training, experiments, POCs
+│   ├── kronos/                # Kronos fine-tuning & testing
+│   ├── pattern_recognition/   # YOLO pattern detection
+│   ├── market_regime/         # HMM regime detection
+│   ├── backtesting/           # Backtest engine
+│   ├── model_training/        # Custom model training
+│   └── scripts/               # One-off debug/POC scripts
+│
+├── data/                      # DATA: All artifacts (gitignored)
+│   ├── historical/            # Historical OHLCV data
+│   ├── kronos_training/       # Kronos training datasets
+│   ├── kronos_checkpoints/    # Fine-tuned model weights
+│   ├── yolo_datasets/         # YOLO training images/labels
+│   ├── yolo_models/           # YOLO .pt weights
+│   ├── model_checkpoints/     # Other model checkpoints
+│   └── test_outputs/          # Test/backtest results
+│
+├── Kronos/                    # Git submodule: Kronos foundation model
+├── venv/                      # Python virtual environment
+└── .gitignore
+```
 
 ## Development Environment
-- Python-based project (inferred from typical ML/prediction projects)
-- Virtual environment likely located at `./venv/` or `../venv/`
+- **Platform**: Windows 11 (win32)
+- **Python**: 3.12 with virtual environment at `./venv/`
+- **GPU**: CUDA available for Kronos inference
 
 ## Common Commands
 
-### Environment Setup
+### Running the Platform
 ```bash
-# Activate virtual environment (Windows)
+# Activate virtual environment
 . venv/Scripts/activate
-# or
-. ./venv/Scripts/activate
-# or
-. ../venv/Scripts/activate
+
+# Start the live trading dashboard
+cd platform && python main.py
+# Opens at http://127.0.0.1:5000
 ```
 
 ### Dependencies
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+cd platform && pip install -r requirements.txt
 ```
 
-### Testing
-```bash
-# Run tests (check project for specific test framework)
-python -m pytest
-# or
-python -m unittest
-```
-
-### Linting & Type Checking
-```bash
-# Python linting
-python -m pylint *.py
-# or
-python -m flake8
-# or
-ruff check .
-
-# Type checking
-python -m mypy .
-```
-
-## Key Areas
-- Data processing and analysis
-- Model training and evaluation
-- Prediction algorithms
-- Market data handling
-
-## Notes for AI Assistants
-1. Always check for existing code conventions before making changes
-2. Verify testing framework before running tests
-3. Use appropriate Python virtual environment
-4. Follow existing code style and patterns
-5. Check for configuration files (config.py, settings.py, .env) for project-specific settings
+## Key Technologies
+- **Backend**: FastAPI with WebSocket support
+- **Frontend**: TradingView Lightweight Charts v4.1.0
+- **ML Model**: Kronos-base (102.3M params) for probabilistic forecasting
+- **LLM**: Google Gemini (gemini-2.5-pro) for market analysis
+- **Data**: Alpaca Markets API (stocks + crypto)
+- **Database**: SQLite (via SQLAlchemy) for agent data
 
 ## Important Reminders
-- This is a financial prediction project - ensure data handling follows best practices
-- Be cautious with API keys and credentials - never commit them to code
-- Validate data inputs and outputs thoroughly
-- Consider market hours and timezone handling for intraday predictions
+1. Never commit API keys or credentials (config.yaml is gitignored)
+2. The `data/` directory is gitignored - contains large model weights and datasets
+3. Always check for existing code conventions before making changes
+4. Consider market hours and timezone handling (Eastern time for RTH)
+5. The Kronos submodule must be initialized: `git submodule update --init`
