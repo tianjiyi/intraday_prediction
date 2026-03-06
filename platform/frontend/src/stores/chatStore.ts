@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ChatMessage } from '../types/chat'
 import { sendChatMessage, formatHistory } from '../api/chat'
+import { useNewsStore } from './newsStore'
 
 interface ChatState {
   messages: ChatMessage[]
@@ -32,7 +33,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   ],
   sessionId: null,
   isLoading: false,
-  isOpen: true,
+  isOpen: window.innerWidth > 900,
 
   toggleChat: () => set((s) => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
@@ -67,11 +68,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       const history = formatHistory(get().messages)
+      const selectedSector = useNewsStore.getState().selectedSector
       const data = await sendChatMessage({
         message: text,
         symbol: symbol || 'QQQ',
         chat_history: history,
         session_id: get().sessionId || undefined,
+        selected_sector: selectedSector || undefined,
       })
 
       const assistantMsg: ChatMessage = {

@@ -201,11 +201,21 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       }
     }, [])
 
-    // EFFECT 2: Set historical + overlay data
+    // EFFECT 2a: Set historical candle data only when data is bulk-replaced
+    // (initial load or timeframe change), not on every real-time tick.
+    const dataVersionRef = useRef(0)
+    const prevHistLenRef = useRef(0)
+
     useEffect(() => {
-      const chart = chartRef.current
       const cs = csRef.current
-      if (!chart || !cs || historicalData.length === 0) return
+      if (!cs || historicalData.length === 0) return
+
+      // Detect bulk data replacement: length changed significantly or decreased
+      const lenDiff = historicalData.length - prevHistLenRef.current
+      const isBulkReplace = prevHistLenRef.current === 0 || lenDiff < -5 || lenDiff > 50
+      prevHistLenRef.current = historicalData.length
+
+      if (!isBulkReplace) return
 
       const aggregated = aggregateCandles(historicalData, timeframe)
       const { candles } = splitCandlesVolume(aggregated)
@@ -213,18 +223,26 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
       aggBarRef.current = null
       prevDataLenRef.current = historicalData.length
+      dataVersionRef.current++
+
+      chartRef.current?.timeScale().fitContent()
+    }, [historicalData, timeframe])
+
+    // EFFECT 2b: Update prediction overlays when prediction changes
+    useEffect(() => {
+      const chart = chartRef.current
+      if (!chart || historicalData.length === 0) return
 
       if (!prediction) {
-        // Clear overlays
         predRef.current?.setData([])
         Object.values(confRefs.current).forEach((s) => s.setData([]))
         vwapRef.current?.setData([])
         Object.values(bbRefs.current).forEach((s) => s.setData([]))
         Object.values(smaRefs.current).forEach((s) => s.setData([]))
-        chart.timeScale().fitContent()
         return
       }
 
+      const aggregated = aggregateCandles(historicalData, timeframe)
       const lastCandle = aggregated[aggregated.length - 1]
       if (!lastCandle) return
       const lastTime = lastCandle.time
@@ -288,9 +306,7 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
           buildSmaPoints(prediction.sma_233_series, historicalData, timeframe) as never
         )
       }
-
-      chart.timeScale().fitContent()
-    }, [historicalData, prediction, timeframe])
+    }, [prediction, timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // EFFECT 3-6: Visibility toggles
     useEffect(() => {

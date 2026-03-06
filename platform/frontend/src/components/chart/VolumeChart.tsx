@@ -7,6 +7,7 @@ import {
 } from 'lightweight-charts'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import type { Candle } from '../../types/market'
+import { useMarketStore } from '../../stores/marketStore'
 import { aggregateCandles, splitCandlesVolume } from '../../utils/chartHelpers'
 import type { TradingChartHandle } from './TradingChart'
 import styles from './VolumeChart.module.css'
@@ -88,13 +89,38 @@ export function VolumeChart({
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update volume data
+  // Update volume data — bulk replace only (initial load / timeframe change),
+  // plus real-time updates via store subscription
+  const prevVolLenRef = useRef(0)
+
   useEffect(() => {
     if (!seriesRef.current || historicalData.length === 0) return
+    const lenDiff = historicalData.length - prevVolLenRef.current
+    const isBulkReplace = prevVolLenRef.current === 0 || lenDiff < -5 || lenDiff > 50
+    prevVolLenRef.current = historicalData.length
+    if (!isBulkReplace) return
+
     const aggregated = aggregateCandles(historicalData, timeframe)
     const { volumes } = splitCandlesVolume(aggregated)
     seriesRef.current.setData(volumes as never)
   }, [historicalData, timeframe])
+
+  // Real-time volume updates via store subscription
+  useEffect(() => {
+    const unsub = useMarketStore.subscribe((state, prevState) => {
+      const s = seriesRef.current
+      if (!s) return
+      const curr = state.historicalData
+      if (curr === prevState.historicalData || curr.length === 0) return
+      const last = curr[curr.length - 1]
+      s.update({
+        time: last.time,
+        value: last.volume ?? 0,
+        color: last.close >= last.open ? '#26a69a80' : '#ef535080',
+      } as never)
+    })
+    return unsub
+  }, [])
 
   return (
     <div

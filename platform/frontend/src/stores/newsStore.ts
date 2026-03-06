@@ -1,24 +1,33 @@
 import { create } from 'zustand'
-import type { NewsItem, SectorSummary } from '../types/news'
+import type { NewsItem, SectorTrend } from '../types/news'
 
 interface NewsState {
   items: NewsItem[]
-  sectors: SectorSummary[]
+  sectorTrends: SectorTrend[]
   unreadCount: number
   activeCategory: string
+  selectedSector: string | null
+  window: '1h' | '6h' | '24h'
+  criticalOnly: boolean
 
   setCategory: (cat: string) => void
   addItems: (items: NewsItem[]) => void
   setItems: (items: NewsItem[]) => void
-  setSectors: (sectors: SectorSummary[]) => void
+  setSectorTrends: (trends: SectorTrend[]) => void
+  selectSector: (sector: string | null) => void
+  setWindow: (w: '1h' | '6h' | '24h') => void
+  setCriticalOnly: (v: boolean) => void
   resetUnread: () => void
 }
 
 export const useNewsStore = create<NewsState>((set, get) => ({
   items: [],
-  sectors: [],
+  sectorTrends: [],
   unreadCount: 0,
   activeCategory: 'all',
+  selectedSector: null,
+  window: '6h',
+  criticalOnly: false,
 
   setCategory: (cat) => set({ activeCategory: cat }),
 
@@ -33,6 +42,14 @@ export const useNewsStore = create<NewsState>((set, get) => ({
   },
 
   setItems: (items) => set({ items }),
-  setSectors: (sectors) => set({ sectors }),
+  setSectorTrends: (trends) => set({ sectorTrends: trends }),
+
+  selectSector: (sector) =>
+    set((s) => ({
+      selectedSector: s.selectedSector === sector ? null : sector,
+    })),
+
+  setWindow: (w) => set({ window: w }),
+  setCriticalOnly: (v) => set({ criticalOnly: v }),
   resetUnread: () => set({ unreadCount: 0 }),
 }))

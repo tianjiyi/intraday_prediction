@@ -12,6 +12,7 @@ export function AiChat() {
   const messages = useChatStore((s) => s.messages)
   const isLoading = useChatStore((s) => s.isLoading)
   const isOpen = useChatStore((s) => s.isOpen)
+  const setOpen = useChatStore((s) => s.setOpen)
   const sendMessage = useChatStore((s) => s.sendMessage)
   const symbol = useMarketStore((s) => s.symbol)
 
@@ -37,6 +38,9 @@ export function AiChat() {
     <div className={styles.panel}>
       <div className={styles.header}>
         <span className={styles.title}>AI Assistant</span>
+        <button className={styles.closeBtn} onClick={() => setOpen(false)} aria-label="Close chat">
+          ✕
+        </button>
       </div>
 
       <div className={styles.messages}>

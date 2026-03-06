@@ -27,7 +27,7 @@ export function Header() {
     <header className={styles.header}>
       <div className={styles.left}>
         <h1 className={styles.logo} onClick={() => navigate('/')}>
-          Kronos
+          Dntheta Trading Assistant
         </h1>
         {!isHome && (
           <button className={styles.backBtn} onClick={() => navigate('/')}>

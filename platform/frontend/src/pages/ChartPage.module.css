@@ -30,3 +30,9 @@
 .divider:hover {
   background: var(--accent);
 }
+
+@media (max-width: 600px) {
+  .chartsArea {
+    flex-direction: column;
+  }
+}

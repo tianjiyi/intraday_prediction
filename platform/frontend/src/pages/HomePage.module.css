@@ -160,3 +160,27 @@
   color: #ce93d8;
   white-space: nowrap;
 }
+
+@media (max-width: 600px) {
+  .page {
+    padding: 0 10px;
+  }
+  .categoryBar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 0;
+    gap: 4px;
+  }
+  .catBtn {
+    padding: 5px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .card {
+    padding: 10px;
+  }
+  .headline {
+    font-size: 12px;
+  }
+}

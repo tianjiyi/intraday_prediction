@@ -97,3 +97,25 @@
   color: var(--accent);
   border-color: var(--accent);
 }
+
+@media (max-width: 600px) {
+  .header {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .logo {
+    font-size: 14px;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
+  .searchInput {
+    width: 100%;
+    min-width: 0;
+  }
+  .backBtn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}

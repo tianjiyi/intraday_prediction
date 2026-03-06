@@ -51,14 +51,16 @@ export function buildChartOptions(
 // --- Historical data conversion ------------------------------------------
 
 export function parseHistoricalBars(bars: HistoricalBar[]): Candle[] {
-  return bars.map((b) => ({
-    time: Math.floor(new Date(b.timestamp).getTime() / 1000),
-    open: b.open,
-    high: b.high,
-    low: b.low,
-    close: b.close,
-    volume: b.volume,
-  }))
+  return bars
+    .map((b) => ({
+      time: Math.floor(new Date(b.timestamp).getTime() / 1000),
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+    }))
+    .filter((c) => !isNaN(c.time))
 }
 
 // --- Timeframe bucket aggregation ----------------------------------------
@@ -125,7 +127,7 @@ export function splitCandlesVolume(bars: OhlcvBar[]) {
   }))
   const volumes = bars.map((b) => ({
     time: b.time,
-    value: b.volume,
+    value: b.volume ?? 0,
     color: b.close >= b.open ? '#26a69a80' : '#ef535080',
   }))
   return { candles, volumes }

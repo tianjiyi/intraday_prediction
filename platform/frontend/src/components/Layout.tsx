@@ -34,9 +34,15 @@ export function Layout({ children }: Props) {
           {children}
         </main>
         {isOpen && (
-          <aside className={styles.chatPanel}>
-            <AiChat />
-          </aside>
+          <>
+            <div
+              className={styles.chatBackdrop}
+              onClick={() => useChatStore.getState().setOpen(false)}
+            />
+            <aside className={styles.chatPanel}>
+              <AiChat />
+            </aside>
+          </>
         )}
       </div>
     </div>

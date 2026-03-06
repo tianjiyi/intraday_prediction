@@ -8,6 +8,7 @@ Docs: https://docs.polymarket.com/developers/gamma-markets-api/overview
 import json
 import time
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 
 import httpx
@@ -43,6 +44,7 @@ class PolymarketService:
         self.enabled = self.polymarket_config.get("enabled", True)
         self._cache: Dict[str, tuple] = {}
         self._cache_ttl = self.polymarket_config.get("cache_ttl", 600)
+        self._max_age_days = self.polymarket_config.get("max_age_days", 30)
 
         if self.enabled:
             logger.info("Polymarket service initialized")
@@ -102,9 +104,21 @@ class PolymarketService:
         return results
 
     def _filter_relevant(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Filter events to finance/geopolitics/tech topics, exclude sports/entertainment."""
+        """Filter events to finance/geopolitics/tech topics, exclude sports/entertainment and stale markets."""
         filtered = []
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._max_age_days)
+
         for item in items:
+            # Skip markets created before the recency cutoff
+            created_str = item.get("created_at", "")
+            if created_str:
+                try:
+                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    if created < cutoff:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
             tags = item.get("_tags_slugs", set())
 
             # Exclude sports/entertainment

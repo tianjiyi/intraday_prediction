@@ -78,3 +78,25 @@
   border-color: var(--accent);
   color: var(--text-primary);
 }
+
+@media (max-width: 600px) {
+  .toolbar {
+    gap: 6px;
+    padding: 4px 8px;
+    flex-wrap: wrap;
+  }
+  .symbol {
+    font-size: 12px;
+  }
+  .tfBtn {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .toggles {
+    gap: 2px;
+  }
+  .toggle {
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+}

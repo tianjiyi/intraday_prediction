@@ -6,6 +6,7 @@ interface ChatRequest {
   symbol?: string
   chat_history?: { role: string; content: string }[]
   session_id?: string
+  selected_sector?: string
 }
 
 interface ChatResponse {

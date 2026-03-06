@@ -645,6 +645,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None  # UUID string for persistent session
     chat_history: Optional[List[Dict[str, str]]] = None
     chart_screenshot: Optional[str] = None  # base64-encoded PNG screenshot of the chart
+    selected_sector: Optional[str] = None  # Sector filter for news context
 
 
 class DrawCommand(BaseModel):
@@ -718,6 +719,24 @@ async def chat_endpoint(request: ChatRequest):
             except Exception as e:
                 logger.warning(f"Memory context build failed (non-fatal): {e}")
 
+        # Build critical news context (FR-17)
+        news_context = ""
+        if news_monitor:
+            try:
+                critical_items = news_monitor.get_critical_queue(
+                    sector=request.selected_sector, limit=5
+                )
+                if critical_items:
+                    lines = ["## Critical Market Catalysts (Live)"]
+                    for i, item in enumerate(critical_items, 1):
+                        lines.append(f"{i}. [{item.impact_tier.upper()}] {item.headline[:120]}")
+                        lines.append(f"   Sectors: {', '.join(item.sector_tags)} | Sentiment: {item.sentiment} | Horizon: {item.horizon}")
+                        if item.impact_reasons:
+                            lines.append(f"   Why: {'; '.join(item.impact_reasons[:2])}")
+                    news_context = "\n".join(lines)
+            except Exception as e:
+                logger.warning(f"News context build failed (non-fatal): {e}")
+
         # Get chat response
         response = await llm_service.chat_with_context(
             symbol=symbol,
@@ -726,6 +745,7 @@ async def chat_endpoint(request: ChatRequest):
             chat_history=request.chat_history,
             chart_screenshot=request.chart_screenshot,
             memory_context=memory_context,
+            news_context=news_context,
         )
 
         # Store messages in memory (async, non-blocking)
@@ -907,16 +927,84 @@ async def llm_status_endpoint():
 
 @app.get("/api/news/feed")
 async def get_news_feed(category: str = "all", limit: int = 50):
-    """Get current news buffer (for initial page load / polling)."""
+    """Get scored news feed (for initial page load / polling)."""
     if not news_monitor:
         return JSONResponse({"error": "News monitor not running"}, status_code=503)
-    items = news_monitor.get_buffer(category=category, limit=limit)
+    scored_items = news_monitor.get_scored_buffer(category=category, limit=limit)
     return {
-        "items": items,
-        "count": len(items),
+        "items": [item.to_dict() for item in scored_items],
+        "count": len(scored_items),
         "unread_count": news_monitor.get_unread_count(),
         "timestamp": datetime.now().isoformat(),
     }
+
+
+@app.get("/api/news/trending-sectors")
+async def get_trending_sectors(window: str = "6h", limit: int = 8, critical_only: bool = False):
+    """Get top trending sectors ranked by news impact."""
+    if not news_monitor:
+        return JSONResponse({"error": "News monitor not running"}, status_code=503)
+    trends = news_monitor.get_trending_sectors(window=window, limit=limit, critical_only=critical_only)
+    return {
+        "window": window,
+        "sectors": [t.to_dict() for t in trends],
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/news/critical")
+async def get_critical_news(sector: Optional[str] = None, limit: int = 30):
+    """Get critical-tier news items, optionally filtered by sector."""
+    if not news_monitor:
+        return JSONResponse({"error": "News monitor not running"}, status_code=503)
+    items = news_monitor.get_critical_queue(sector=sector, limit=limit)
+    return {
+        "items": [item.to_dict() for item in items],
+        "count": len(items),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+# Break impact cache (5-min TTL)
+_break_impact_cache: Dict[str, Any] = {}
+
+@app.get("/api/news/break-impact")
+async def get_break_impact():
+    """Generate AI break-impact analysis from critical news items."""
+    if not news_monitor:
+        return JSONResponse({"error": "News monitor not running"}, status_code=503)
+
+    # Check cache (5-min TTL)
+    now = datetime.now()
+    cached = _break_impact_cache.get('data')
+    cached_at = _break_impact_cache.get('at')
+    if cached and cached_at and (now - cached_at).total_seconds() < 300:
+        return cached
+
+    critical_items = news_monitor.get_critical_queue(limit=5)
+    if not critical_items:
+        result = {
+            "analysis": "No major market-moving catalyst detected in the current monitoring window.",
+            "generated_at": now.isoformat(),
+            "critical_count": 0,
+        }
+        _break_impact_cache['data'] = result
+        _break_impact_cache['at'] = now
+        return result
+
+    if not llm_service or not llm_service.is_available():
+        return JSONResponse({"error": "LLM service not available"}, status_code=503)
+
+    items_dicts = [item.to_dict() for item in critical_items]
+    analysis = await llm_service.generate_break_impact(items_dicts)
+    result = {
+        "analysis": analysis,
+        "generated_at": now.isoformat(),
+        "critical_count": len(critical_items),
+    }
+    _break_impact_cache['data'] = result
+    _break_impact_cache['at'] = now
+    return result
 
 
 @app.get("/api/news/monitor/status")
@@ -925,6 +1013,7 @@ async def news_monitor_status():
     return {
         "running": news_monitor is not None and news_monitor._running,
         "buffer_size": len(news_monitor._buffer) if news_monitor else 0,
+        "scored_buffer_size": len(news_monitor._scored_buffer) if news_monitor else 0,
         "sources": {
             "alpaca": news_service.is_available() if news_service else False,
             "twitter": twitter_service.is_available() if twitter_service else False,

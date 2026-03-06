@@ -27,7 +27,19 @@
   overflow: hidden;
 }
 
+.chatBackdrop {
+  display: none;
+}
+
 @media (max-width: 900px) {
+  .chatBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 199;
+  }
+
   .chatPanel {
     position: fixed;
     top: 0;
@@ -37,5 +49,11 @@
     max-width: 380px;
     z-index: 200;
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@media (max-width: 600px) {
+  .chatPanel {
+    max-width: 100%;
   }
 }

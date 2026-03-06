@@ -3,13 +3,33 @@ import { useNavigate } from 'react-router-dom'
 import { useNewsStore } from '../stores/newsStore'
 import { fetchNewsFeed } from '../api/news'
 import { formatTimeAgo } from '../utils/formatters'
+import { TrendingSectorsPanel } from '../components/TrendingSectorsPanel'
+import { BreakImpactPanel } from '../components/BreakImpactPanel'
+import { NewsFilters } from '../components/NewsFilters'
 import styles from './HomePage.module.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
-  tech: '#2962FF',
-  financial: '#FF9800',
-  geopolitical: '#ef5350',
-  prediction_market: '#ab47bc',
+  macro: '#FF9800',
+  earnings: '#2962FF',
+  policy: '#26A69A',
+  geopolitics: '#ef5350',
+  company_specific: '#42A5F5',
+  market_structure: '#ab47bc',
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  all: 'All',
+  macro: 'Macro',
+  earnings: 'Earnings',
+  policy: 'Policy',
+  geopolitics: 'Geopolitics',
+  company_specific: 'Company',
+  market_structure: 'Structure',
+}
+
+const TIER_COLORS: Record<string, string> = {
+  critical: '#ef5350',
+  high: '#FF9800',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -20,12 +40,14 @@ const SOURCE_LABELS: Record<string, string> = {
   Polymarket: 'P',
 }
 
-const CATEGORIES = ['all', 'tech', 'financial', 'geopolitical', 'prediction_market']
+const CATEGORIES = ['all', 'macro', 'earnings', 'policy', 'geopolitics', 'company_specific', 'market_structure']
 
 export function HomePage() {
   const navigate = useNavigate()
   const items = useNewsStore((s) => s.items)
   const activeCategory = useNewsStore((s) => s.activeCategory)
+  const criticalOnly = useNewsStore((s) => s.criticalOnly)
+  const selectedSector = useNewsStore((s) => s.selectedSector)
   const setCategory = useNewsStore((s) => s.setCategory)
   const setItems = useNewsStore((s) => s.setItems)
 
@@ -35,13 +57,23 @@ export function HomePage() {
       .catch(console.error)
   }, [setItems])
 
-  const filtered =
-    activeCategory === 'all'
-      ? items
-      : items.filter((i) => i.category === activeCategory)
+  // Apply filters
+  let filtered = items
+  if (activeCategory !== 'all') {
+    filtered = filtered.filter((i) => i.category === activeCategory)
+  }
+  if (criticalOnly) {
+    filtered = filtered.filter((i) => i.impact_tier === 'critical')
+  }
+  if (selectedSector) {
+    filtered = filtered.filter((i) => i.sector_tags?.includes(selectedSector))
+  }
 
   return (
     <div className={styles.page}>
+      <TrendingSectorsPanel />
+      <BreakImpactPanel />
+
       <div className={styles.categoryBar}>
         {CATEGORIES.map((cat) => (
           <button
@@ -49,10 +81,12 @@ export function HomePage() {
             className={`${styles.catBtn} ${activeCategory === cat ? styles.active : ''}`}
             onClick={() => setCategory(cat)}
           >
-            {cat === 'all' ? 'All' : cat === 'prediction_market' ? 'Markets' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+            {CATEGORY_LABELS[cat] || cat}
           </button>
         ))}
       </div>
+
+      <NewsFilters />
 
       <div className={styles.feed}>
         {filtered.length === 0 && (
@@ -79,8 +113,20 @@ export function HomePage() {
                 className={styles.catTag}
                 style={{ color: CATEGORY_COLORS[item.category] }}
               >
-                {(item.category || '').replace('_', ' ').toUpperCase().slice(0, 3)}
+                {(CATEGORY_LABELS[item.category] || item.category || '').toUpperCase().slice(0, 4)}
               </span>
+
+              {/* Impact tier badge */}
+              {item.impact_tier && TIER_COLORS[item.impact_tier] && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: '#fff',
+                  background: TIER_COLORS[item.impact_tier],
+                  borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase',
+                }}>
+                  {item.impact_tier}
+                </span>
+              )}
+
               {item.sentiment === 'bullish' && <span className={styles.bull}>+</span>}
               {item.sentiment === 'bearish' && <span className={styles.bear}>-</span>}
             </div>
@@ -89,6 +135,20 @@ export function HomePage() {
 
             {item.symbols && item.symbols.length > 0 && (
               <div className={styles.symbols}>{item.symbols.join(', ')}</div>
+            )}
+
+            {/* Sector tags */}
+            {item.sector_tags && item.sector_tags.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                {item.sector_tags.map((tag) => (
+                  <span key={tag} style={{
+                    fontSize: 9, color: 'var(--text-muted)',
+                    background: 'var(--bg-surface)', borderRadius: 3, padding: '1px 5px',
+                  }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             )}
 
             {item.probability != null && (

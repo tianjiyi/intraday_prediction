@@ -560,6 +560,7 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
         chat_history: List[Dict[str, str]] = None,
         chart_screenshot: Optional[str] = None,
         memory_context: str = "",
+        news_context: str = "",
     ) -> str:
         """
         Chat with the LLM using current market context
@@ -678,10 +679,16 @@ A screenshot of the current chart is attached. Use this visual information to:
         if memory_context:
             memory_section = f"\n{memory_context}\n"
 
+        # Inject critical news context if available
+        news_section = ""
+        if news_context:
+            news_section = f"\n{news_context}\n"
+
         prompt = f"""You are an expert intraday trading assistant with access to real-time market data. You help traders make informed decisions based on technical analysis.
 
 {market_context}
 {memory_section}
+{news_section}
 {visual_context}
 {history_text}
 ## User's Question:
@@ -695,6 +702,9 @@ A screenshot of the current chart is attached. Use this visual information to:
 5. Use the Kronos prediction probabilities to assess signal strength
 6. Daily SMA 5 is the most important level for intraday bias
 7. If a chart screenshot is provided, reference what you see visually to support your analysis
+8. When critical market catalysts are present above, structure your analysis as: **Catalyst** > **Transmission Path** > **Affected Sectors** > **Market Impact Horizon** > **Key Levels** > **Invalidation Conditions**
+9. If no critical catalysts are present, briefly state "No major market-moving catalyst detected" before answering
+10. Do not offer generic market opinions not tied to a scored catalyst or technical level
 
 ## Drawing Capabilities:
 You can draw on the chart! When the user asks you to mark price levels, support, resistance, or draw lines, include a DRAW_COMMAND block with JSON:
@@ -748,3 +758,54 @@ Respond naturally and helpfully. If the question is unclear, ask for clarificati
             logger.error(f"Error in chat: {e}")
             self._log_llm_context('chat_with_context', prompt, error=error_msg)
             return f"Sorry, I encountered an error: {error_msg}"
+
+    async def generate_break_impact(self, critical_items: List[Dict[str, Any]]) -> str:
+        """Generate structured break-impact analysis from critical news items."""
+        if not self.is_available():
+            return "LLM service not available."
+
+        items_text = ""
+        for i, item in enumerate(critical_items[:5], 1):
+            items_text += (
+                f"{i}. [{item.get('impact_tier', 'critical').upper()}] {item.get('headline', '')}\n"
+                f"   Sectors: {', '.join(item.get('sector_tags', []))} | "
+                f"Sentiment: {item.get('sentiment', 'neutral')} | "
+                f"Horizon: {item.get('horizon', 'intraday')}\n"
+            )
+            reasons = item.get('impact_reasons', [])
+            if reasons:
+                items_text += f"   Why: {'; '.join(reasons[:3])}\n"
+            items_text += "\n"
+
+        prompt = f"""You are a market impact analyst. Analyze the following critical market events and produce a structured break-impact report.
+
+## Critical Events
+{items_text}
+
+## Required Output Structure
+Produce exactly these sections:
+
+### Why It Matters Now
+Brief explanation of why these catalysts are market-moving right now.
+
+### Likely Winners and Losers by Sector
+Which sectors benefit and which are at risk. Be specific with sector names and direction.
+
+### What to Monitor Next
+Key instruments to watch: mention specific tickers like SPY, QQQ, VIX, UST10Y, DXY, Oil as relevant.
+
+### What Invalidates This View
+Specific conditions or events that would negate the current thesis.
+
+Keep the analysis concise, actionable, and tied to the specific events listed above. No generic commentary."""
+
+        try:
+            response = self.model.generate_content(prompt)
+            response_text = response.text
+            self._log_llm_context('generate_break_impact', prompt, response=response_text)
+            return response_text
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error generating break impact: {e}")
+            self._log_llm_context('generate_break_impact', prompt, error=error_msg)
+            return f"Error generating break impact analysis: {error_msg}"

@@ -1,0 +1,245 @@
+/* TrendingSectorsPanel */
+.sectorsWrapper {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sectorsTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sectorsList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+.sectorRow:hover {
+  background: var(--bg-surface);
+}
+
+.sectorRow.selected {
+  background: rgba(41, 98, 255, 0.12);
+  border-color: rgba(41, 98, 255, 0.3);
+}
+
+.sectorName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.impactBar {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.impactFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.sentimentDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.itemCount {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* NewsFilters */
+.filtersBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.filterBtn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.filterBtn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.filterBtn.active {
+  background: rgba(41, 98, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(41, 98, 255, 0.25);
+}
+
+.filterBtn.critical {
+  background: rgba(239, 83, 80, 0.15);
+  color: var(--red);
+  border-color: rgba(239, 83, 80, 0.3);
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.sectorPill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(41, 98, 255, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(41, 98, 255, 0.25);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pillClose {
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.7;
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* BreakImpactPanel */
+.breakWrapper {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.breakHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.breakArrow {
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.breakArrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.breakContent {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.breakHeading {
+  font-weight: 700;
+  margin-top: 8px;
+  color: var(--text-primary);
+}
+
+.breakHeading:first-child {
+  margin-top: 0;
+}
+
+.breakBullet {
+  padding-left: 12px;
+  color: var(--text-secondary);
+}
+
+.updating {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 600px) {
+  .sectorRow {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .sectorName {
+    font-size: 11px;
+    min-width: 70px;
+  }
+  .filtersBar {
+    gap: 4px;
+    padding: 6px 0;
+  }
+  .filterBtn {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+  .breakContent {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+}

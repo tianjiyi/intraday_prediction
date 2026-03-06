@@ -46,7 +46,14 @@ export const useMarketStore = create<MarketState>((set) => ({
     }),
 
   addBar: (bar) =>
-    set((s) => ({
-      historicalData: [...s.historicalData, bar],
-    })),
+    set((s) => {
+      const data = [...s.historicalData]
+      if (data.length > 0 && data[data.length - 1].time === bar.time) {
+        // Replace existing bar with completed bar data
+        data[data.length - 1] = bar
+      } else {
+        data.push(bar)
+      }
+      return { historicalData: data }
+    }),
 }))
