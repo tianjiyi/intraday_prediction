@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class LandingService:
-    def __init__(self, config: Dict[str, Any], news_monitor, catalyst_service=None):
+    def __init__(self, config: Dict[str, Any], news_monitor, catalyst_service=None, fear_greed_service=None):
         self.config = config
         self.news_monitor = news_monitor
         self.catalyst_service = catalyst_service
+        self.fear_greed_service = fear_greed_service
         self.landing_config = config.get('landing', {})
 
         # Alpaca client for snapshots
@@ -204,6 +205,19 @@ class LandingService:
             summary_parts.append(f"VIX {vol_level:.1f}")
         change_summary = ', '.join(summary_parts) if summary_parts else 'No data'
 
+        # --- Fear & Greed Index + Put/Call Ratio ---
+        fear_greed = None
+        put_call_ratio = None
+        if self.fear_greed_service:
+            try:
+                fear_greed = self.fear_greed_service.get_fear_greed()
+            except Exception as e:
+                logger.warning(f"Fear & Greed fetch failed: {e}")
+            try:
+                put_call_ratio = self.fear_greed_service.get_put_call_ratio()
+            except Exception as e:
+                logger.warning(f"Put/Call ratio fetch failed: {e}")
+
         result = {
             'risk_mode': risk_mode,
             'risk_score': risk_score,
@@ -212,6 +226,8 @@ class LandingService:
             'volatility_source': vol_source,
             'volatility_level': round(vol_level, 2),
             'volatility_change_1d_pct': round(vol_change_1d, 2),
+            'fear_greed': fear_greed,
+            'put_call_ratio': put_call_ratio,
             'components': {
                 'vol_component': round(vol_component, 3),
                 'macro_component': round(macro_component, 3),

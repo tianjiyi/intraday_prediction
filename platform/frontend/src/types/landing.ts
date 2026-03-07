@@ -1,3 +1,23 @@
+export interface FearGreed {
+  score: number | null
+  label: string | null
+  previous_close?: number | null
+  change?: number | null
+  source: string
+  error?: string
+  updated_at: string
+}
+
+export interface PutCallRatio {
+  ratio: number | null
+  previous?: number | null
+  change?: number | null
+  trade_date?: string | null
+  source: string
+  error?: string
+  updated_at: string
+}
+
 export interface MarketPulse {
   risk_mode: 'risk_on' | 'risk_off' | 'mixed'
   risk_score: number
@@ -6,6 +26,8 @@ export interface MarketPulse {
   volatility_source: string
   volatility_level: number
   volatility_change_1d_pct: number
+  fear_greed: FearGreed | null
+  put_call_ratio: PutCallRatio | null
   components: {
     vol_component: number
     macro_component: number

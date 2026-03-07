@@ -42,6 +42,7 @@ from services.news_monitor_service import NewsMonitorService
 from services.landing_service import LandingService
 from services.catalyst_calendar_service import CatalystCalendarService
 from services.trade_context_service import TradeContextService
+from services.fear_greed_service import FearGreedService
 
 # Load config once at module level - shared by all services
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -325,10 +326,12 @@ def initialize_landing_service():
             config=app_config,
             news_monitor=news_monitor,
         )
+        fear_greed_service = FearGreedService(config=app_config)
         landing_service = LandingService(
             config=app_config,
             news_monitor=news_monitor,
             catalyst_service=catalyst_service,
+            fear_greed_service=fear_greed_service,
         )
         trade_context_service = TradeContextService(
             config=app_config,
