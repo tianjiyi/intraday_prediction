@@ -203,17 +203,19 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
     // EFFECT 2a: Set historical candle data only when data is bulk-replaced
     // (initial load or timeframe change), not on every real-time tick.
-    const dataVersionRef = useRef(0)
     const prevHistLenRef = useRef(0)
+    const prevTimeframeRef = useRef(timeframe)
 
     useEffect(() => {
       const cs = csRef.current
       if (!cs || historicalData.length === 0) return
 
-      // Detect bulk data replacement: length changed significantly or decreased
+      // Detect bulk data replacement: timeframe changed, length changed significantly, or first load
+      const tfChanged = timeframe !== prevTimeframeRef.current
       const lenDiff = historicalData.length - prevHistLenRef.current
-      const isBulkReplace = prevHistLenRef.current === 0 || lenDiff < -5 || lenDiff > 50
+      const isBulkReplace = prevHistLenRef.current === 0 || tfChanged || lenDiff < -5 || lenDiff > 50
       prevHistLenRef.current = historicalData.length
+      prevTimeframeRef.current = timeframe
 
       if (!isBulkReplace) return
 
@@ -223,7 +225,6 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
       aggBarRef.current = null
       prevDataLenRef.current = historicalData.length
-      dataVersionRef.current++
 
       chartRef.current?.timeScale().fitContent()
     }, [historicalData, timeframe])

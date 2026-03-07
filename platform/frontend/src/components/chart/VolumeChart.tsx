@@ -92,12 +92,15 @@ export function VolumeChart({
   // Update volume data — bulk replace only (initial load / timeframe change),
   // plus real-time updates via store subscription
   const prevVolLenRef = useRef(0)
+  const prevVolTfRef = useRef(timeframe)
 
   useEffect(() => {
     if (!seriesRef.current || historicalData.length === 0) return
+    const tfChanged = timeframe !== prevVolTfRef.current
     const lenDiff = historicalData.length - prevVolLenRef.current
-    const isBulkReplace = prevVolLenRef.current === 0 || lenDiff < -5 || lenDiff > 50
+    const isBulkReplace = prevVolLenRef.current === 0 || tfChanged || lenDiff < -5 || lenDiff > 50
     prevVolLenRef.current = historicalData.length
+    prevVolTfRef.current = timeframe
     if (!isBulkReplace) return
 
     const aggregated = aggregateCandles(historicalData, timeframe)
