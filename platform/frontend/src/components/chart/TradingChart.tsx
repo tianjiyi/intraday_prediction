@@ -14,8 +14,8 @@ import {
   splitCandlesVolume,
   mergeIncomingBar,
   buildPredictionPoints,
-  buildHorizontalLine,
   buildSmaPoints,
+  computeSessionVwap,
   type OhlcvBar,
 } from '../../utils/chartHelpers'
 import styles from './TradingChart.module.css'
@@ -32,8 +32,8 @@ interface Props {
   prediction: Prediction | null
   showPredictions: boolean
   showConfidence: boolean
-  showIndicators: boolean
   showSMAs: boolean
+  dayTradingMode: boolean
 }
 
 export const TradingChart = forwardRef<TradingChartHandle, Props>(
@@ -45,8 +45,8 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       prediction,
       showPredictions,
       showConfidence,
-      showIndicators,
       showSMAs,
+      dayTradingMode,
     },
     ref
   ) {
@@ -57,20 +57,28 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
     const csRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
     const predRef = useRef<ISeriesApi<'Line'> | null>(null)
     const confRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
-    const vwapRef = useRef<ISeriesApi<'Line'> | null>(null)
-    const bbRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
     const smaRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
+
+    // Day Trading VWAP + band series
+    const dtVwapRef = useRef<ISeriesApi<'Line'> | null>(null)
+    const dtBandRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
 
     // Real-time aggregation state
     const aggBarRef = useRef<OhlcvBar | null>(null)
     const prevDataLenRef = useRef(0)
 
-    // OHLC overlay state
+    // OHLC + indicator overlay state
     const [overlayBar, setOverlayBar] = useState<{
       open: number
       high: number
       low: number
       close: number
+      sma5?: number
+      sma21?: number
+      sma233?: number
+      vwap?: number
+      bbUpper?: number
+      bbLower?: number
     } | null>(null)
 
     // Expose chart to parent for VolumeChart time-scale sync
@@ -118,43 +126,47 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
         })
       }
 
-      // VWAP
-      vwapRef.current = chart.addSeries(LineSeries, {
-        color: '#FF6B6B',
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        title: 'VWAP',
-      })
-
-      // Bollinger Bands
-      const bbDefs = [
-        { key: 'upper', color: 'rgba(255,193,7,0.5)', width: 1 },
-        { key: 'middle', color: 'rgba(255,193,7,0.7)', width: 1 },
-        { key: 'lower', color: 'rgba(255,193,7,0.5)', width: 1 },
-      ] as const
-      for (const { key, color, width } of bbDefs) {
-        bbRefs.current[key] = chart.addSeries(LineSeries, {
-          color,
-          lineWidth: width,
-          title: `BB ${key}`,
-        })
-      }
-
       // SMA series
       const smaDefs = [
-        { key: 'sma5', color: '#FF8C00', width: 2, title: 'SMA 5' },
-        { key: 'sma21', color: '#FF0000', width: 2, title: 'SMA 21' },
-        { key: 'sma233', color: '#808080', width: 3, title: 'SMA 233' },
+        { key: 'sma5', color: '#FF8C00', width: 2 },
+        { key: 'sma21', color: '#FF0000', width: 2 },
+        { key: 'sma233', color: '#808080', width: 3 },
       ] as const
-      for (const { key, color, width, title } of smaDefs) {
+      for (const { key, color, width } of smaDefs) {
         smaRefs.current[key] = chart.addSeries(LineSeries, {
           color,
           lineWidth: width,
-          title,
+          lastValueVisible: false,
+          priceLineVisible: false,
         })
       }
 
-      // Crosshair → OHLC overlay
+      // Day Trading session VWAP + sigma bands
+      dtVwapRef.current = chart.addSeries(LineSeries, {
+        color: '#FF9800',
+        lineWidth: 2,
+        title: 'VWAP',
+        priceLineVisible: false,
+        lastValueVisible: false,
+      })
+      const dtBandDefs = [
+        { key: 'upper1', color: '#42A5F5', style: LineStyle.Dashed },
+        { key: 'lower1', color: '#42A5F5', style: LineStyle.Dashed },
+        { key: 'upper2', color: '#90CAF9', style: LineStyle.Dotted },
+        { key: 'lower2', color: '#90CAF9', style: LineStyle.Dotted },
+      ] as const
+      for (const { key, color, style } of dtBandDefs) {
+        dtBandRefs.current[key] = chart.addSeries(LineSeries, {
+          color,
+          lineWidth: 1,
+          lineStyle: style,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        })
+      }
+
+      // Crosshair → OHLC + indicator overlay
       chart.subscribeCrosshairMove((param) => {
         const cs = csRef.current
         if (!param.time || !cs) {
@@ -165,7 +177,20 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
           | { open: number; high: number; low: number; close: number }
           | undefined
         if (d) {
-          setOverlayBar({ open: d.open, high: d.high, low: d.low, close: d.close })
+          const getVal = (s: ISeriesApi<'Line'> | null) => {
+            if (!s) return undefined
+            const v = param.seriesData?.get(s as ISeriesApi<SeriesType>) as { value?: number } | undefined
+            return v?.value
+          }
+          setOverlayBar({
+            open: d.open, high: d.high, low: d.low, close: d.close,
+            sma5: getVal(smaRefs.current['sma5']),
+            sma21: getVal(smaRefs.current['sma21']),
+            sma233: getVal(smaRefs.current['sma233']),
+            vwap: getVal(dtVwapRef.current),
+            bbUpper: getVal(dtBandRefs.current['upper1']),
+            bbLower: getVal(dtBandRefs.current['lower1']),
+          })
         } else {
           setOverlayBar(null)
         }
@@ -239,8 +264,6 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       if (!prediction) {
         predRef.current?.setData([])
         Object.values(confRefs.current).forEach((s) => s.setData([]))
-        vwapRef.current?.setData([])
-        Object.values(bbRefs.current).forEach((s) => s.setData([]))
         Object.values(smaRefs.current).forEach((s) => s.setData([]))
         return
       }
@@ -265,32 +288,6 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
             buildPredictionPoints(pcts[key], lastTime, timeframe) as never
           )
         }
-      }
-
-      // VWAP (intraday only)
-      const isDailyOrWeekly = timeframe >= 1440
-      if (vwapRef.current) {
-        if (!isDailyOrWeekly && prediction.current_vwap) {
-          vwapRef.current.setData(
-            buildHorizontalLine(prediction.current_vwap, lastTime, timeframe) as never
-          )
-        } else {
-          vwapRef.current.setData([])
-        }
-      }
-
-      // Bollinger Bands
-      const bb = prediction.bollinger_bands
-      if (bb) {
-        bbRefs.current['upper']?.setData(
-          buildHorizontalLine(bb.upper, lastTime, timeframe) as never
-        )
-        bbRefs.current['middle']?.setData(
-          buildHorizontalLine(bb.middle, lastTime, timeframe) as never
-        )
-        bbRefs.current['lower']?.setData(
-          buildHorizontalLine(bb.lower, lastTime, timeframe) as never
-        )
       }
 
       // SMAs (flat arrays, one value per historical candle)
@@ -323,17 +320,62 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
     }, [showConfidence])
 
     useEffect(() => {
-      vwapRef.current?.applyOptions({ visible: showIndicators })
-      Object.values(bbRefs.current).forEach((s) =>
-        s.applyOptions({ visible: showIndicators })
-      )
-    }, [showIndicators])
-
-    useEffect(() => {
       Object.values(smaRefs.current).forEach((s) =>
         s.applyOptions({ visible: showSMAs })
       )
     }, [showSMAs])
+
+    // EFFECT: Day Trading VWAP + bands
+    const IS_MINUTE_TF = [1, 5, 15]
+    useEffect(() => {
+      const enabled = dayTradingMode && IS_MINUTE_TF.includes(timeframe)
+      if (!enabled || historicalData.length === 0) {
+        dtVwapRef.current?.setData([])
+        Object.values(dtBandRefs.current).forEach((s) => s.setData([]))
+        useMarketStore.getState().setDayTradingVwap(null)
+        return
+      }
+
+      const aggregated = aggregateCandles(historicalData, timeframe)
+      const vwapPoints = computeSessionVwap(aggregated)
+      if (vwapPoints.length === 0) return
+
+      dtVwapRef.current?.setData(
+        vwapPoints.map((p) => ({ time: p.time, value: p.vwap })) as never
+      )
+      dtBandRefs.current['upper1']?.setData(
+        vwapPoints.map((p) => ({ time: p.time, value: p.upper1 })) as never
+      )
+      dtBandRefs.current['lower1']?.setData(
+        vwapPoints.map((p) => ({ time: p.time, value: p.lower1 })) as never
+      )
+      dtBandRefs.current['upper2']?.setData(
+        vwapPoints.map((p) => ({ time: p.time, value: p.upper2 })) as never
+      )
+      dtBandRefs.current['lower2']?.setData(
+        vwapPoints.map((p) => ({ time: p.time, value: p.lower2 })) as never
+      )
+
+      // Store latest VWAP for chat context
+      const last = vwapPoints[vwapPoints.length - 1]
+      useMarketStore.getState().setDayTradingVwap({
+        value: last.vwap,
+        std: last.std,
+        upper1: last.upper1,
+        lower1: last.lower1,
+        upper2: last.upper2,
+        lower2: last.lower2,
+      })
+    }, [historicalData, timeframe, dayTradingMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Visibility toggle for DT VWAP
+    useEffect(() => {
+      const visible = dayTradingMode && IS_MINUTE_TF.includes(timeframe)
+      dtVwapRef.current?.applyOptions({ visible })
+      Object.values(dtBandRefs.current).forEach((s) =>
+        s.applyOptions({ visible })
+      )
+    }, [dayTradingMode, timeframe])
 
     return (
       <div className={styles.wrapper}>
@@ -359,6 +401,36 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
               <span className={styles.ohlcLabel}>C</span>
               {overlayBar.close.toFixed(2)}
             </span>
+            {overlayBar.sma5 != null && (
+              <span className={styles.indicatorItem} style={{ color: '#FF8C00' }}>
+                <span className={styles.ohlcLabel}>SMA5</span>
+                {overlayBar.sma5.toFixed(2)}
+              </span>
+            )}
+            {overlayBar.sma21 != null && (
+              <span className={styles.indicatorItem} style={{ color: '#FF0000' }}>
+                <span className={styles.ohlcLabel}>SMA21</span>
+                {overlayBar.sma21.toFixed(2)}
+              </span>
+            )}
+            {overlayBar.sma233 != null && (
+              <span className={styles.indicatorItem} style={{ color: '#808080' }}>
+                <span className={styles.ohlcLabel}>SMA233</span>
+                {overlayBar.sma233.toFixed(2)}
+              </span>
+            )}
+            {overlayBar.vwap != null && (
+              <span className={styles.indicatorItem} style={{ color: '#FF9800' }}>
+                <span className={styles.ohlcLabel}>VWAP</span>
+                {overlayBar.vwap.toFixed(2)}
+              </span>
+            )}
+            {overlayBar.bbUpper != null && overlayBar.bbLower != null && (
+              <span className={styles.indicatorItem} style={{ color: '#FFC107' }}>
+                <span className={styles.ohlcLabel}>BB</span>
+                {overlayBar.bbLower.toFixed(2)}–{overlayBar.bbUpper.toFixed(2)}
+              </span>
+            )}
           </div>
         )}
       </div>

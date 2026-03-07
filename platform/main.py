@@ -646,6 +646,7 @@ class ChatRequest(BaseModel):
     chat_history: Optional[List[Dict[str, str]]] = None
     chart_screenshot: Optional[str] = None  # base64-encoded PNG screenshot of the chart
     selected_sector: Optional[str] = None  # Sector filter for news context
+    chart_state: Optional[Dict] = None  # Frontend chart indicator state (day trading VWAP etc.)
 
 
 class DrawCommand(BaseModel):
@@ -746,6 +747,7 @@ async def chat_endpoint(request: ChatRequest):
             chart_screenshot=request.chart_screenshot,
             memory_context=memory_context,
             news_context=news_context,
+            chart_state=request.chart_state,
         )
 
         # Store messages in memory (async, non-blocking)

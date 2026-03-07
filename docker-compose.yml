@@ -21,6 +21,13 @@ services:
     build: .
     ports:
       - "5000:5000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     env_file:
       - .env
     environment:
@@ -41,15 +48,6 @@ services:
       timeout: 10s
       retries: 3
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      app:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   hf_cache:

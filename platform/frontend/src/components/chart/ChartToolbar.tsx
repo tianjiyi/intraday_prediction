@@ -26,14 +26,14 @@ export function ChartToolbar({
   const {
     showPredictions,
     showConfidence,
-    showIndicators,
     showSMAs,
     showRSI,
+    dayTradingMode,
     togglePredictions,
     toggleConfidence,
-    toggleIndicators,
     toggleSMAs,
     toggleRSI,
+    toggleDayTradingMode,
   } = useUiStore()
 
   return (
@@ -69,12 +69,6 @@ export function ChartToolbar({
           Conf
         </button>
         <button
-          className={`${styles.toggle} ${showIndicators ? styles.on : ''}`}
-          onClick={toggleIndicators}
-        >
-          Ind
-        </button>
-        <button
           className={`${styles.toggle} ${showSMAs ? styles.on : ''}`}
           onClick={toggleSMAs}
         >
@@ -85,6 +79,12 @@ export function ChartToolbar({
           onClick={toggleRSI}
         >
           RSI
+        </button>
+        <button
+          className={`${styles.toggle} ${dayTradingMode ? styles.on : ''}`}
+          onClick={toggleDayTradingMode}
+        >
+          DT
         </button>
       </div>
     </div>

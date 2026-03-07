@@ -24,9 +24,9 @@ export function ChartPage() {
   const {
     showPredictions,
     showConfidence,
-    showIndicators,
     showSMAs,
     showRSI,
+    dayTradingMode,
   } = useUiStore()
 
   // Data lifecycle
@@ -80,8 +80,8 @@ export function ChartPage() {
             prediction={prediction}
             showPredictions={showPredictions}
             showConfidence={showConfidence}
-            showIndicators={showIndicators}
             showSMAs={showSMAs}
+            dayTradingMode={dayTradingMode}
           />
           {showRSI && (
             <>

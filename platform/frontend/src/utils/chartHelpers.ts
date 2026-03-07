@@ -221,6 +221,81 @@ export function buildSmaPoints(
     .sort((a, b) => a.time - b.time)
 }
 
+// --- Session VWAP + sigma bands (Pine-style) --------------------------------
+
+export interface VwapPoint {
+  time: number
+  vwap: number
+  std: number
+  upper1: number; lower1: number
+  upper2: number; lower2: number
+}
+
+function dayOfBar(unixSec: number): number {
+  // Eastern time date as YYYYMMDD integer for session boundary detection
+  // Using Intl to get Eastern time components (handles DST automatically)
+  const d = new Date(unixSec * 1000)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d)
+  const y = Number(parts.find(p => p.type === 'year')!.value)
+  const m = Number(parts.find(p => p.type === 'month')!.value)
+  const day = Number(parts.find(p => p.type === 'day')!.value)
+  return y * 10000 + m * 100 + day
+}
+
+export function computeSessionVwap(bars: OhlcvBar[]): VwapPoint[] {
+  const results: VwapPoint[] = []
+  let cumV = 0
+  let cumPV = 0
+  let cumPV2 = 0
+  let prevDay = -1
+
+  for (const bar of bars) {
+    const day = dayOfBar(bar.time)
+    if (day !== prevDay) {
+      // Session reset
+      cumV = 0
+      cumPV = 0
+      cumPV2 = 0
+      prevDay = day
+    }
+
+    const src = (bar.high + bar.low + bar.close) / 3 // HLC3
+    const vol = bar.volume || 0
+    cumV += vol
+    cumPV += src * vol
+    cumPV2 += src * src * vol
+
+    if (cumV === 0) {
+      results.push({
+        time: bar.time,
+        vwap: src, std: 0,
+        upper1: src, lower1: src,
+        upper2: src, lower2: src,
+      })
+      continue
+    }
+
+    const vwap = cumPV / cumV
+    const variance = Math.max(0, cumPV2 / cumV - vwap * vwap)
+    const std = Math.sqrt(variance)
+
+    results.push({
+      time: bar.time,
+      vwap,
+      std,
+      upper1: vwap + std,
+      lower1: vwap - std,
+      upper2: vwap + 2 * std,
+      lower2: vwap - 2 * std,
+    })
+  }
+
+  return results
+}
+
 // --- RSI calculation (Wilder's smoothing) -----------------------------------
 
 export function computeRsi(

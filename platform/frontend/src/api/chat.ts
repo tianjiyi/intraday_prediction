@@ -1,5 +1,6 @@
 import { apiFetch } from './client'
 import type { ChatMessage } from '../types/chat'
+import type { DayTradingChartState } from '../types/market'
 
 interface ChatRequest {
   message: string
@@ -7,6 +8,9 @@ interface ChatRequest {
   chat_history?: { role: string; content: string }[]
   session_id?: string
   selected_sector?: string
+  chart_state?: {
+    day_trading: DayTradingChartState
+  }
 }
 
 interface ChatResponse {

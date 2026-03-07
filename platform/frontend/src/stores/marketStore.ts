@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Candle, Prediction } from '../types/market'
+import type { Candle, Prediction, DayTradingVwap } from '../types/market'
 
 interface MarketState {
   symbol: string
@@ -8,6 +8,7 @@ interface MarketState {
   prediction: Prediction | null
   isStreaming: boolean
   wsConnected: boolean
+  dayTradingVwap: DayTradingVwap | null
 
   setSymbol: (symbol: string) => void
   setTimeframe: (tf: number) => void
@@ -17,6 +18,7 @@ interface MarketState {
   setWsConnected: (connected: boolean) => void
   updateBar: (bar: Candle) => void
   addBar: (bar: Candle) => void
+  setDayTradingVwap: (vwap: DayTradingVwap | null) => void
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
@@ -26,6 +28,7 @@ export const useMarketStore = create<MarketState>((set) => ({
   prediction: null,
   isStreaming: false,
   wsConnected: false,
+  dayTradingVwap: null,
 
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
@@ -33,6 +36,8 @@ export const useMarketStore = create<MarketState>((set) => ({
   setPrediction: (prediction) => set({ prediction }),
   setStreaming: (isStreaming) => set({ isStreaming }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
+
+  setDayTradingVwap: (dayTradingVwap) => set({ dayTradingVwap }),
 
   updateBar: (bar) =>
     set((s) => {

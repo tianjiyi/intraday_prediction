@@ -15,7 +15,8 @@
   left: 8px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
+  flex-wrap: wrap;
   pointer-events: none;
   z-index: 10;
   font-size: 12px;
@@ -43,4 +44,8 @@
 
 .negative {
   color: var(--red);
+}
+
+.indicatorItem {
+  font-size: 11px;
 }

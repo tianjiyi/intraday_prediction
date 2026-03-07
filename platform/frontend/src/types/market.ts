@@ -47,6 +47,21 @@ export interface DailyContext {
   three_day_low: number | null
 }
 
+export interface DayTradingVwap {
+  value: number
+  std: number
+  upper1: number
+  lower1: number
+  upper2: number
+  lower2: number
+}
+
+export interface DayTradingChartState {
+  enabled: boolean
+  timeframe_minutes: number
+  vwap: DayTradingVwap | null
+}
+
 export interface HistoricalBar {
   timestamp: string
   open: number

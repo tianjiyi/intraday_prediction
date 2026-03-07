@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { ChatMessage } from '../types/chat'
 import { sendChatMessage, formatHistory } from '../api/chat'
 import { useNewsStore } from './newsStore'
+import { useMarketStore } from './marketStore'
+import { useUiStore } from './uiStore'
 
 interface ChatState {
   messages: ChatMessage[]
@@ -69,12 +71,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const history = formatHistory(get().messages)
       const selectedSector = useNewsStore.getState().selectedSector
+      const { timeframe, dayTradingVwap } = useMarketStore.getState()
+      const { dayTradingMode } = useUiStore.getState()
+      const dtEnabled = dayTradingMode && [1, 5, 15].includes(timeframe)
       const data = await sendChatMessage({
         message: text,
         symbol: symbol || 'QQQ',
         chat_history: history,
         session_id: get().sessionId || undefined,
         selected_sector: selectedSector || undefined,
+        chart_state: {
+          day_trading: {
+            enabled: dtEnabled,
+            timeframe_minutes: timeframe,
+            vwap: dtEnabled ? dayTradingVwap : null,
+          },
+        },
       })
 
       const assistantMsg: ChatMessage = {

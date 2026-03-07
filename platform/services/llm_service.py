@@ -561,6 +561,7 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
         chart_screenshot: Optional[str] = None,
         memory_context: str = "",
         news_context: str = "",
+        chart_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Chat with the LLM using current market context
@@ -572,6 +573,7 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
             chat_history: Previous chat messages for context
             chart_screenshot: Base64-encoded PNG screenshot of the chart (optional)
             memory_context: Pre-built agent memory context string (from AgentMemoryService)
+            chart_state: Frontend chart indicator state (day trading VWAP etc.)
 
         Returns:
             LLM response
@@ -612,6 +614,13 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
         # Percentiles
         percentiles = prediction_data.get('percentiles', {})
 
+        # Check if frontend day trading VWAP supersedes backend VWAP
+        dt_has_vwap = (
+            chart_state
+            and chart_state.get("day_trading", {}).get("enabled")
+            and chart_state.get("day_trading", {}).get("vwap")
+        )
+
         # Get current time
         eastern = pytz.timezone('US/Eastern')
         now = datetime.now(eastern)
@@ -644,9 +653,9 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
 - **Daily SMA 5**: {f'${daily_sma_5:.2f}' if daily_sma_5 else 'N/A'} - Price is {'ABOVE ✅ (Bullish bias)' if daily_context and daily_context.get('above_daily_sma5') else 'BELOW ❌ (Bearish bias)' if daily_context and daily_context.get('above_daily_sma5') is False else 'N/A'}
 
 ## Intraday Indicators
-- **VWAP**: {f'${vwap:.2f}' if vwap else 'N/A'} {'(Price Above)' if vwap and current_price > vwap else '(Price Below)' if vwap else ''}
-- **Bollinger Upper**: {f'${bb.get("upper", 0):.2f}' if bb else 'N/A'}
-- **Bollinger Lower**: {f'${bb.get("lower", 0):.2f}' if bb else 'N/A'}
+{f'- **VWAP**: ${vwap:.2f} {"(Price Above)" if current_price > vwap else "(Price Below)"}' if vwap and not dt_has_vwap else '- **VWAP**: (see Day Trading Indicators below)' if dt_has_vwap else '- **VWAP**: N/A'}
+{f'- **Bollinger Upper**: ${bb.get("upper", 0):.2f}' if bb and not dt_has_vwap else '- **Bollinger Bands**: (see Day Trading VWAP bands below)' if dt_has_vwap else '- **Bollinger Upper**: N/A'}
+{f'- **Bollinger Lower**: ${bb.get("lower", 0):.2f}' if bb and not dt_has_vwap else ''}
 - **Intraday SMA 5**: {f'${sma_5:.2f}' if sma_5 else 'N/A'}
 - **Intraday SMA 21**: {f'${sma_21:.2f}' if sma_21 else 'N/A'}
 - **Intraday SMA 233**: {f'${sma_233:.2f}' if sma_233 else 'N/A'}
@@ -684,9 +693,26 @@ A screenshot of the current chart is attached. Use this visual information to:
         if news_context:
             news_section = f"\n{news_context}\n"
 
+        # Inject day trading chart state if available
+        dt_section = ""
+        if chart_state:
+            dt = chart_state.get("day_trading", {})
+            if dt.get("enabled") and dt.get("vwap"):
+                v = dt["vwap"]
+                dt_section = f"""
+## Day Trading Indicators (Frontend Session VWAP)
+- **Session VWAP**: ${v.get('value', 0):.2f}
+- **VWAP StdDev**: {v.get('std', 0):.4f}
+- **+1σ Band**: ${v.get('upper1', 0):.2f} / **-1σ Band**: ${v.get('lower1', 0):.2f}
+- **+2σ Band**: ${v.get('upper2', 0):.2f} / **-2σ Band**: ${v.get('lower2', 0):.2f}
+- **Timeframe**: {dt.get('timeframe_minutes', 1)}m
+Note: These VWAP values are computed from the frontend chart and reflect the exact indicators the user sees.
+"""
+
         prompt = f"""You are an expert intraday trading assistant with access to real-time market data. You help traders make informed decisions based on technical analysis.
 
 {market_context}
+{dt_section}
 {memory_section}
 {news_section}
 {visual_context}
