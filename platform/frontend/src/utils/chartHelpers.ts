@@ -220,3 +220,41 @@ export function buildSmaPoints(
     .map(([time, value]) => ({ time, value }))
     .sort((a, b) => a.time - b.time)
 }
+
+// --- RSI calculation (Wilder's smoothing) -----------------------------------
+
+export function computeRsi(
+  bars: OhlcvBar[],
+  period = 14
+): { time: number; value: number }[] {
+  if (bars.length < period + 1) return []
+
+  const results: { time: number; value: number }[] = []
+
+  // Calculate initial average gain/loss from first `period` changes
+  let avgGain = 0
+  let avgLoss = 0
+  for (let i = 1; i <= period; i++) {
+    const change = bars[i].close - bars[i - 1].close
+    if (change > 0) avgGain += change
+    else avgLoss -= change
+  }
+  avgGain /= period
+  avgLoss /= period
+
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
+  results.push({ time: bars[period].time, value: 100 - 100 / (1 + rs) })
+
+  // Wilder's smoothing for remaining bars
+  for (let i = period + 1; i < bars.length; i++) {
+    const change = bars[i].close - bars[i - 1].close
+    const gain = change > 0 ? change : 0
+    const loss = change < 0 ? -change : 0
+    avgGain = (avgGain * (period - 1) + gain) / period
+    avgLoss = (avgLoss * (period - 1) + loss) / period
+    const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
+    results.push({ time: bars[i].time, value: rsi })
+  }
+
+  return results
+}

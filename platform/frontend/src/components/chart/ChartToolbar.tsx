@@ -28,10 +28,12 @@ export function ChartToolbar({
     showConfidence,
     showIndicators,
     showSMAs,
+    showRSI,
     togglePredictions,
     toggleConfidence,
     toggleIndicators,
     toggleSMAs,
+    toggleRSI,
   } = useUiStore()
 
   return (
@@ -77,6 +79,12 @@ export function ChartToolbar({
           onClick={toggleSMAs}
         >
           SMA
+        </button>
+        <button
+          className={`${styles.toggle} ${showRSI ? styles.on : ''}`}
+          onClick={toggleRSI}
+        >
+          RSI
         </button>
       </div>
     </div>

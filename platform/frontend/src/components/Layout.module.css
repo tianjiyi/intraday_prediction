@@ -21,8 +21,18 @@
   flex: 1;
 }
 
+.chatDivider {
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.chatDivider:hover {
+  background: var(--accent);
+}
+
 .chatPanel {
-  width: 380px;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -40,12 +50,16 @@
     z-index: 199;
   }
 
+  .chatDivider {
+    display: none;
+  }
+
   .chatPanel {
     position: fixed;
     top: 0;
     right: 0;
     bottom: 0;
-    width: 100%;
+    width: 100% !important;
     max-width: 380px;
     z-index: 200;
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);

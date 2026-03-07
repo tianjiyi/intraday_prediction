@@ -3,6 +3,7 @@ import { Header } from './Header'
 import { AiChat } from './AiChat'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useChatStore } from '../stores/chatStore'
+import { usePanelResize } from '../hooks/usePanelResize'
 import styles from './Layout.module.css'
 
 interface Props {
@@ -13,6 +14,15 @@ export function Layout({ children }: Props) {
   useWebSocket()
 
   const isOpen = useChatStore((s) => s.isOpen)
+
+  const chatResize = usePanelResize({
+    storageKey: 'chatPanelWidth',
+    defaultSize: 380,
+    minSize: 280,
+    maxSize: 600,
+    direction: 'col',
+    invert: true,
+  })
 
   // Ctrl+K to toggle chat
   useEffect(() => {
@@ -39,7 +49,11 @@ export function Layout({ children }: Props) {
               className={styles.chatBackdrop}
               onClick={() => useChatStore.getState().setOpen(false)}
             />
-            <aside className={styles.chatPanel}>
+            <div
+              className={styles.chatDivider}
+              onMouseDown={chatResize.onMouseDown}
+            />
+            <aside className={styles.chatPanel} style={{ width: chatResize.size }}>
               <AiChat />
             </aside>
           </>

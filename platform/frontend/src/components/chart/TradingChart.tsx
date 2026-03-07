@@ -22,6 +22,7 @@ import styles from './TradingChart.module.css'
 
 export interface TradingChartHandle {
   getChart: () => IChartApi | null
+  getSeries: () => ISeriesApi<'Candlestick'> | null
 }
 
 interface Props {
@@ -75,6 +76,7 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
     // Expose chart to parent for VolumeChart time-scale sync
     useImperativeHandle(ref, () => ({
       getChart: () => chartRef.current,
+      getSeries: () => csRef.current,
     }))
 
     // EFFECT 1: Create chart + all series on mount

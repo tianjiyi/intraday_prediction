@@ -7,9 +7,10 @@ interface Props {
   symbol: string
   prediction: Prediction | null
   isStreaming: boolean
+  width?: number
 }
 
-export function StatsPanel({ symbol, prediction: pred, isStreaming }: Props) {
+export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   if (collapsed) {
@@ -33,7 +34,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming }: Props) {
   }
 
   return (
-    <aside className={styles.panel}>
+    <aside className={styles.panel} style={width ? { width } : undefined}>
       <div className={styles.panelHeader}>
         <span className={styles.panelTitle}>{symbol}</span>
         <div className={styles.headerActions}>

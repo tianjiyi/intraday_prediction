@@ -31,8 +31,22 @@
   background: var(--accent);
 }
 
+.colDivider {
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.colDivider:hover {
+  background: var(--accent);
+}
+
 @media (max-width: 600px) {
   .chartsArea {
     flex-direction: column;
+  }
+  .colDivider {
+    display: none;
   }
 }

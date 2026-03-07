@@ -62,23 +62,43 @@ export function VolumeChart({
       priceScaleId: 'right',
     })
 
-    // Bidirectional time-scale sync
+    // Bidirectional time-scale sync (logical range)
     const mainChart = mainChartRef.current?.getChart()
+    const mainSeries = mainChartRef.current?.getSeries()
     if (mainChart) {
       chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (syncingRef.current || !range) return
         syncingRef.current = true
-        try {
-          mainChart.timeScale().setVisibleLogicalRange(range)
-        } catch { /* ignore */ }
+        try { mainChart.timeScale().setVisibleLogicalRange(range) } catch { /* ignore */ }
         syncingRef.current = false
       })
       mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (syncingRef.current || !range) return
         syncingRef.current = true
-        try {
-          chart.timeScale().setVisibleLogicalRange(range)
-        } catch { /* ignore */ }
+        try { chart.timeScale().setVisibleLogicalRange(range) } catch { /* ignore */ }
+        syncingRef.current = false
+      })
+
+      // Crosshair sync: main → volume
+      mainChart.subscribeCrosshairMove((param) => {
+        if (syncingRef.current) return
+        syncingRef.current = true
+        if (param.time && seriesRef.current) {
+          chart.setCrosshairPosition(0, param.time, seriesRef.current)
+        } else {
+          chart.clearCrosshairPosition()
+        }
+        syncingRef.current = false
+      })
+      // Crosshair sync: volume → main
+      chart.subscribeCrosshairMove((param) => {
+        if (syncingRef.current) return
+        syncingRef.current = true
+        if (param.time && mainSeries) {
+          mainChart.setCrosshairPosition(0, param.time, mainSeries)
+        } else {
+          mainChart.clearCrosshairPosition()
+        }
         syncingRef.current = false
       })
     }

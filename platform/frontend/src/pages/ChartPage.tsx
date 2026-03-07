@@ -2,11 +2,12 @@ import { useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useMarketStore } from '../stores/marketStore'
 import { useChartData } from '../hooks/useChartData'
-import { useResizableDivider } from '../hooks/useResizableDivider'
+import { usePanelResize } from '../hooks/usePanelResize'
 import { useUiStore } from '../stores/uiStore'
 import { ChartToolbar } from '../components/chart/ChartToolbar'
 import { TradingChart, type TradingChartHandle } from '../components/chart/TradingChart'
 import { VolumeChart } from '../components/chart/VolumeChart'
+import { RsiChart } from '../components/chart/RsiChart'
 import { StatsPanel } from '../components/chart/StatsPanel'
 import styles from './ChartPage.module.css'
 
@@ -25,6 +26,7 @@ export function ChartPage() {
     showConfidence,
     showIndicators,
     showSMAs,
+    showRSI,
   } = useUiStore()
 
   // Data lifecycle
@@ -33,9 +35,31 @@ export function ChartPage() {
   // Chart ref for volume sync
   const chartHandleRef = useRef<TradingChartHandle>(null)
 
-  // Resizable divider
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const { volumeHeight, onDividerMouseDown } = useResizableDivider(wrapperRef)
+  // Resizable panels
+  const rsiResize = usePanelResize({
+    storageKey: 'rsiChartHeight',
+    defaultSize: 120,
+    minSize: 60,
+    maxSize: 300,
+    direction: 'row',
+    invert: true,
+  })
+  const volResize = usePanelResize({
+    storageKey: 'volumeChartHeight',
+    defaultSize: 120,
+    minSize: 60,
+    maxSize: 300,
+    direction: 'row',
+    invert: true,
+  })
+  const statsResize = usePanelResize({
+    storageKey: 'statsPanelWidth',
+    defaultSize: 200,
+    minSize: 140,
+    maxSize: 400,
+    direction: 'col',
+    invert: true,
+  })
 
   return (
     <div className={styles.page}>
@@ -47,7 +71,7 @@ export function ChartPage() {
       />
 
       <div className={styles.chartsArea}>
-        <div className={styles.chartsWrapper} ref={wrapperRef}>
+        <div className={styles.chartsWrapper}>
           <TradingChart
             ref={chartHandleRef}
             symbol={upperSymbol}
@@ -59,22 +83,38 @@ export function ChartPage() {
             showIndicators={showIndicators}
             showSMAs={showSMAs}
           />
+          {showRSI && (
+            <>
+              <div className={styles.divider} onMouseDown={rsiResize.onMouseDown} />
+              <RsiChart
+                timeframe={timeframe}
+                historicalData={historicalData}
+                mainChartRef={chartHandleRef}
+                height={rsiResize.size}
+              />
+            </>
+          )}
           <div
             className={styles.divider}
-            onMouseDown={onDividerMouseDown}
+            onMouseDown={volResize.onMouseDown}
           />
           <VolumeChart
             timeframe={timeframe}
             historicalData={historicalData}
             mainChartRef={chartHandleRef}
-            height={volumeHeight}
+            height={volResize.size}
           />
         </div>
 
+        <div
+          className={styles.colDivider}
+          onMouseDown={statsResize.onMouseDown}
+        />
         <StatsPanel
           symbol={upperSymbol}
           prediction={prediction}
           isStreaming={isStreaming}
+          width={statsResize.size}
         />
       </div>
     </div>
