@@ -207,13 +207,34 @@ Saved views:
 
 ### 4.6 Trade Context Snapshot
 Display:
-- Intraday regime: trend/range/volatile
-- Day trading VWAP state (above/below, sigma position)
-- Nearest S/R zones
-- Event-risk warning (if high-impact event near)
+- Intraday regime: `trend | range | volatile | transition`
+- Day trading VWAP state:
+  - relation to session VWAP: `above | below | crossing`
+  - sigma position: `inside_1sigma | between_1_2sigma | outside_2sigma`
+- Nearest S/R zones:
+  - nearest support zones (up to 2)
+  - nearest resistance zones (up to 2)
+  - distance to each zone (price and pct)
+- Event-risk warning:
+  - next high-impact event title
+  - countdown timer
+  - urgency tag (`imminent` if <= 60 minutes)
 
 Purpose:
 - Provide immediate context before moving to chart or asking AI
+
+Timeframe scope:
+- V1 applies only to minute timeframes: `1m`, `5m`, `15m`
+- For non-minute timeframes, return `state = not_applicable`
+
+Data ownership:
+- VWAP and sigma state come from TradingView chart indicators (frontend-authoritative)
+- S/R zones come from intraday S/R zone engine
+- Event-risk context comes from Catalyst Clock feed
+
+Summary line requirement:
+- Render one concise summary for AI and fast user scan
+- Example: `Range; below VWAP (-1.2sigma); S 600.8-601.1 strong; CPI in 42m`
 
 ## 5. Backend API Contracts
 
@@ -326,6 +347,45 @@ Response:
 }
 ```
 
+### 5.6 GET /api/landing/trade-context?symbol=QQQ&timeframe=1m
+Response:
+```json
+{
+  "symbol": "QQQ",
+  "timeframe": "1m",
+  "state": "ok",
+  "intraday_regime": "range",
+  "regime_confidence": 0.72,
+  "vwap_state": {
+    "relation": "below",
+    "sigma_position": "between_1_2sigma",
+    "distance_to_vwap": -0.84,
+    "distance_to_vwap_pct": -0.14
+  },
+  "sr_zones": {
+    "nearest_support": [
+      {"kind":"support","low":600.80,"high":601.10,"mid":600.95,"strength":"strong","status":"active","touch_count":3}
+    ],
+    "nearest_resistance": [
+      {"kind":"resistance","low":602.50,"high":602.90,"mid":602.70,"strength":"medium","status":"tested","touch_count":2}
+    ]
+  },
+  "event_risk": {
+    "status": "imminent",
+    "next_event": "US CPI",
+    "impact": "high",
+    "time": "2026-03-10T12:30:00Z",
+    "countdown_seconds": 2520
+  },
+  "summary": "Range; below VWAP (-1.2sigma); S 600.8-601.1 strong; CPI in 42m",
+  "updated_at": "2026-03-07T18:00:00Z"
+}
+```
+
+Fallback states:
+- `state = not_applicable` when timeframe is not `1m|5m|15m`
+- `state = unavailable` when chart/SR inputs are missing
+
 ### 5.5 Existing endpoints reused
 - `/api/news/feed`
 - `/api/news/critical`
@@ -356,6 +416,7 @@ Add `landingStore` (Zustand) with:
 - `events72h`
 - `movers`
 - `themes`
+- `tradeContext`
 - `selectedNewsItem`
 - loading/error states per block
 
@@ -365,6 +426,7 @@ Refresh cadence:
 - Catalyst clock: 5m
 - Movers: 60s
 - Themes: 5m
+- Trade context: 30-60s
 - News feed: WS + periodic sync
 
 Catalyst provider config (implemented):
@@ -410,6 +472,8 @@ AC-5: Landing context can be consumed by AI assistant for prompt grounding.
 
 AC-6: No major layout break on desktop and mobile breakpoints.
 
+AC-8: Trade Context panel returns regime, VWAP state, and nearest S/R zones for `1m/5m/15m`, with explicit `not_applicable` for non-minute timeframes.
+
 AC-7: Catalyst Clock returns at least one valid source mode (`benzinga`, `inferred_news`, or `mixed`) and exposes `source`/`provider_status` in payload. PASSED — Benzinga economics calendar live with inferred-news fallback.
 
 ## 11. Rollout Plan
@@ -439,3 +503,6 @@ Phase C:
 - [x] Implement inferred-news fallback for catalyst clock (keyword matching from news monitor)
 - [x] Wire CatalystClock frontend component to fetch and render real events with countdown timers
 - [x] Add `BENZINGA_API_KEY` env var and `landing.catalyst.*` config block
+- [x] Implement `/api/landing/trade-context` endpoint contract (`platform/services/trade_context_service.py`)
+- [x] Wire Trade Context panel to live data (regime + VWAP state + S/R zones)
+- [ ] Add Trade Context summary string to AI context bridge

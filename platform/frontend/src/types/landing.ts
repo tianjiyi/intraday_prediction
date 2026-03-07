@@ -87,3 +87,41 @@ export interface CatalystClockResponse {
   placeholder?: boolean
   updated_at: string
 }
+
+export interface SRZone {
+  kind: 'support' | 'resistance'
+  low: number
+  high: number
+  mid: number
+  strength: 'strong' | 'medium' | 'weak'
+  status: 'active' | 'tested'
+  touch_count: number
+}
+
+export interface TradeContext {
+  symbol: string
+  timeframe: string
+  state: 'ok' | 'not_applicable' | 'unavailable'
+  reason?: string
+  intraday_regime?: 'trend' | 'range' | 'volatile' | 'transition'
+  regime_confidence?: number
+  vwap_state?: {
+    relation: 'above' | 'below' | 'crossing'
+    sigma_position: 'inside_1sigma' | 'between_1_2sigma' | 'outside_2sigma'
+    distance_to_vwap: number
+    distance_to_vwap_pct: number
+  }
+  sr_zones?: {
+    nearest_support: SRZone[]
+    nearest_resistance: SRZone[]
+  }
+  event_risk?: {
+    status: 'imminent' | 'upcoming' | 'none'
+    next_event?: string
+    impact?: string
+    time?: string
+    countdown_seconds?: number
+  }
+  summary?: string
+  updated_at: string
+}

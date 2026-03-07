@@ -103,6 +103,7 @@
   .changeSummary {
     margin-left: 0;
     max-width: 100%;
+    white-space: normal;
   }
   .divider {
     display: none;

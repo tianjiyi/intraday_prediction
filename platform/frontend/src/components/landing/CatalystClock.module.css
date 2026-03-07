@@ -191,3 +191,16 @@
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
+
+@media (max-width: 768px) {
+  .panel {
+    padding: 12px 14px;
+    min-height: 150px;
+  }
+  .eventList {
+    max-height: 50vh;
+  }
+  .eventTitle {
+    font-size: 13px;
+  }
+}

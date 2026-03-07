@@ -109,8 +109,14 @@
 }
 
 @media (max-width: 768px) {
+  .panel {
+    padding: 12px 14px;
+  }
   .tables {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+  .symbol {
+    min-width: 40px;
   }
 }

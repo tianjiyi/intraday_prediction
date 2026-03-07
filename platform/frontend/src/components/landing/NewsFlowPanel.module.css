@@ -127,3 +127,25 @@
   color: var(--text-muted);
   font-size: 13px;
 }
+
+@media (max-width: 768px) {
+  .panel {
+    padding: 12px 14px;
+    min-height: 150px;
+    max-height: 50vh;
+  }
+  .header {
+    flex-wrap: wrap;
+  }
+  .filterBar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .filterBtn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .itemHeadline {
+    font-size: 13px;
+  }
+}

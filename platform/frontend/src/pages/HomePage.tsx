@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLandingStore } from '../stores/landingStore'
 import { useNewsStore } from '../stores/newsStore'
-import { fetchMarketPulse, fetchMacroTape, fetchMovers, fetchThemes, fetchCatalystClock } from '../api/landing'
+import { fetchMarketPulse, fetchMacroTape, fetchMovers, fetchThemes, fetchCatalystClock, fetchTradeContext } from '../api/landing'
 import { fetchNewsFeed } from '../api/news'
 import { MarketPulseStrip } from '../components/landing/MarketPulseStrip'
 import { MacroTape } from '../components/landing/MacroTape'
@@ -15,7 +15,7 @@ import styles from './HomePage.module.css'
 const REFRESH_INTERVAL = 60_000
 
 function loadLandingData() {
-  const { setPulse, setMacroTape, setMovers, setThemes, setCatalysts, setLoading, setError } = useLandingStore.getState()
+  const { setPulse, setMacroTape, setMovers, setThemes, setCatalysts, setTradeContext, setLoading, setError } = useLandingStore.getState()
   setLoading(true)
   setError(null)
 
@@ -25,6 +25,7 @@ function loadLandingData() {
     fetchMovers(10).then((d) => setMovers(d.gainers, d.losers)).catch(() => {}),
     fetchThemes(6).then((d) => setThemes(d.themes)).catch(() => {}),
     fetchCatalystClock(72).then((d) => setCatalysts(d.events)).catch(() => {}),
+    fetchTradeContext('QQQ', '1m').then(setTradeContext).catch(() => {}),
   ])
     .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
     .finally(() => setLoading(false))

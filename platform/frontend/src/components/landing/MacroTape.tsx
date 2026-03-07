@@ -1,3 +1,4 @@
+import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLandingStore } from '../../stores/landingStore'
 import styles from './MacroTape.module.css'
@@ -20,8 +21,8 @@ export function MacroTape() {
         const isPositive = item.pct_1d >= 0
 
         return (
-          <div key={item.label}>
-            {i > 0 && <div className={styles.divider} style={{ display: 'inline-block' }} />}
+          <React.Fragment key={item.label}>
+            {i > 0 && <div className={styles.divider} />}
             <div
               className={`${styles.item} ${isClickable ? styles.clickable : ''}`}
               onClick={isClickable ? () => navigate(`/chart/${item.symbol}`) : undefined}
@@ -35,7 +36,7 @@ export function MacroTape() {
               </span>
               {item.is_fallback && <span className={styles.fallback}>*</span>}
             </div>
-          </div>
+          </React.Fragment>
         )
       })}
     </div>

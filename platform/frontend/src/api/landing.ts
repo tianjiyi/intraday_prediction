@@ -5,6 +5,7 @@ import type {
   MoversResponse,
   ThemesResponse,
   CatalystClockResponse,
+  TradeContext,
 } from '../types/landing'
 
 export function fetchMarketPulse() {
@@ -25,4 +26,8 @@ export function fetchThemes(limit = 6) {
 
 export function fetchCatalystClock(hours = 72) {
   return apiFetch<CatalystClockResponse>(`/api/landing/catalyst-clock?hours=${hours}`)
+}
+
+export function fetchTradeContext(symbol = 'QQQ', timeframe = '1m') {
+  return apiFetch<TradeContext>(`/api/landing/trade-context?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
 }

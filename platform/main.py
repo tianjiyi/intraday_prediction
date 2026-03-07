@@ -41,6 +41,7 @@ from services.polymarket_service import PolymarketService
 from services.news_monitor_service import NewsMonitorService
 from services.landing_service import LandingService
 from services.catalyst_calendar_service import CatalystCalendarService
+from services.trade_context_service import TradeContextService
 
 # Load config once at module level - shared by all services
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -125,6 +126,7 @@ agent_memory: Optional[AgentMemoryService] = None
 polymarket_service: Optional[PolymarketService] = None
 news_monitor: Optional[NewsMonitorService] = None
 landing_service: Optional[LandingService] = None
+trade_context_service: Optional[TradeContextService] = None
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -317,7 +319,7 @@ async def initialize_news_monitor():
 
 def initialize_landing_service():
     """Initialize the landing command center service."""
-    global landing_service
+    global landing_service, trade_context_service
     try:
         catalyst_service = CatalystCalendarService(
             config=app_config,
@@ -328,10 +330,15 @@ def initialize_landing_service():
             news_monitor=news_monitor,
             catalyst_service=catalyst_service,
         )
-        logger.info("Landing service initialized (with catalyst calendar)")
+        trade_context_service = TradeContextService(
+            config=app_config,
+            catalyst_service=catalyst_service,
+        )
+        logger.info("Landing service initialized (with catalyst calendar + trade context)")
     except Exception as e:
         logger.warning(f"Landing service init failed (non-fatal): {e}")
         landing_service = None
+        trade_context_service = None
 
 
 @app.on_event("startup")
@@ -1088,6 +1095,14 @@ async def get_catalyst_clock(hours: int = 72):
     if not landing_service:
         return JSONResponse({"error": "Landing service not available"}, status_code=503)
     return landing_service.get_catalyst_clock(hours=hours)
+
+
+@app.get("/api/landing/trade-context")
+async def get_trade_context(symbol: str = "QQQ", timeframe: str = "1m"):
+    """Trade context: intraday regime, VWAP state, S/R zones, event risk."""
+    if not trade_context_service:
+        return JSONResponse({"error": "Trade context service not available"}, status_code=503)
+    return trade_context_service.get_trade_context(symbol=symbol, timeframe=timeframe)
 
 
 # ============== Agent Memory Endpoints ==============

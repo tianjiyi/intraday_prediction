@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { MarketPulse, MacroTapeItem, Mover, Theme, CatalystEvent } from '../types/landing'
+import type { MarketPulse, MacroTapeItem, Mover, Theme, CatalystEvent, TradeContext } from '../types/landing'
 
 interface LandingState {
   pulse: MarketPulse | null
@@ -8,6 +8,7 @@ interface LandingState {
   losers: Mover[]
   themes: Theme[]
   catalysts: CatalystEvent[]
+  tradeContext: TradeContext | null
   loading: boolean
   error: string | null
 
@@ -16,6 +17,7 @@ interface LandingState {
   setMovers: (gainers: Mover[], losers: Mover[]) => void
   setThemes: (t: Theme[]) => void
   setCatalysts: (c: CatalystEvent[]) => void
+  setTradeContext: (tc: TradeContext) => void
   setLoading: (v: boolean) => void
   setError: (e: string | null) => void
 }
@@ -27,6 +29,7 @@ export const useLandingStore = create<LandingState>((set) => ({
   losers: [],
   themes: [],
   catalysts: [],
+  tradeContext: null,
   loading: false,
   error: null,
 
@@ -35,6 +38,7 @@ export const useLandingStore = create<LandingState>((set) => ({
   setMovers: (gainers, losers) => set({ gainers, losers }),
   setThemes: (themes) => set({ themes }),
   setCatalysts: (catalysts) => set({ catalysts }),
+  setTradeContext: (tradeContext) => set({ tradeContext }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
 }))

@@ -105,7 +105,13 @@
 }
 
 @media (max-width: 768px) {
+  .panel {
+    padding: 12px 14px;
+  }
   .grid {
     grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 10px 12px;
   }
 }

@@ -7,12 +7,27 @@
   gap: 10px;
 }
 
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .title {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-secondary);
+}
+
+.symbol {
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-tertiary, #2a2a3e);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .placeholder {
@@ -22,4 +37,257 @@
   color: var(--text-muted);
   font-size: 13px;
   padding: 12px 0;
+}
+
+.summaryBar {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  letter-spacing: 0.2px;
+}
+
+.metricsRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.metricCard {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.02));
+  border-radius: 6px;
+}
+
+.metricLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.metricValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.metricSub {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Regime badges */
+.regimeBadge {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+  letter-spacing: 0.5px;
+}
+
+.regimeTrend {
+  color: #26a69a;
+  background: rgba(38, 166, 154, 0.12);
+}
+
+.regimeRange {
+  color: #42a5f5;
+  background: rgba(66, 165, 245, 0.12);
+}
+
+.regimeVolatile {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.12);
+}
+
+.regimeTransition {
+  color: #ffa726;
+  background: rgba(255, 167, 38, 0.12);
+}
+
+/* VWAP state */
+.vwapRelation {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.vwapAbove {
+  color: #26a69a;
+}
+
+.vwapBelow {
+  color: #ef5350;
+}
+
+.vwapCrossing {
+  color: #ffa726;
+}
+
+/* Event risk */
+.eventStatus {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  width: fit-content;
+  letter-spacing: 0.5px;
+}
+
+.eventImminent {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.15);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.eventUpcoming {
+  color: #ffa726;
+  background: rgba(255, 167, 38, 0.12);
+}
+
+.eventName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.eventCountdown {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* S/R Zones */
+.srSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.srLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.zoneList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.zoneRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoneRow:hover {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
+}
+
+.zoneDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.zoneDotSupport {
+  background: #26a69a;
+}
+
+.zoneDotResistance {
+  background: #ef5350;
+}
+
+.zoneRange {
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 120px;
+}
+
+.zoneStrength {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  min-width: 56px;
+}
+
+.zoneStrong {
+  color: #26a69a;
+}
+
+.zoneMedium {
+  color: #ffa726;
+}
+
+.zoneWeak {
+  color: var(--text-muted);
+}
+
+.zoneDist {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 60px;
+  text-align: right;
+}
+
+.zoneTouches {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .panel {
+    padding: 12px 14px;
+  }
+  .metricsRow {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .metricCard {
+    min-width: 0;
+  }
+  .summaryBar {
+    font-size: 12px;
+    word-break: break-word;
+  }
+  .zoneRow {
+    gap: 6px;
+  }
+  .zoneRange {
+    min-width: 90px;
+  }
+  .zoneStrength {
+    min-width: 40px;
+  }
+  .zoneDist {
+    min-width: 50px;
+  }
 }
