@@ -242,8 +242,8 @@ export function computeRsi(
   avgGain /= period
   avgLoss /= period
 
-  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
-  results.push({ time: bars[period].time, value: 100 - 100 / (1 + rs) })
+  const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
+  results.push({ time: bars[period].time, value: rsi })
 
   // Wilder's smoothing for remaining bars
   for (let i = period + 1; i < bars.length; i++) {

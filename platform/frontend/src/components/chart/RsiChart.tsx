@@ -179,24 +179,26 @@ export function RsiChart({
         try { mainChart.timeScale().setVisibleLogicalRange(range) } catch { /* ignore */ }
         syncingRef.current = false
       })
-      mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      const onMainRangeChange = (range: { from: number; to: number } | null) => {
         if (syncingRef.current || !range) return
         syncingRef.current = true
         try { chart.timeScale().setVisibleLogicalRange(range) } catch { /* ignore */ }
         syncingRef.current = false
-      })
+      }
+      mainChart.timeScale().subscribeVisibleLogicalRangeChange(onMainRangeChange)
 
       // Crosshair sync: main → RSI
-      mainChart.subscribeCrosshairMove((param) => {
+      const onMainCrosshairMove = (param: { time?: unknown }) => {
         if (syncingRef.current) return
         syncingRef.current = true
         if (param.time && rsiRef.current) {
-          chart.setCrosshairPosition(50, param.time, rsiRef.current)
+          chart.setCrosshairPosition(50, param.time as never, rsiRef.current)
         } else {
           chart.clearCrosshairPosition()
         }
         syncingRef.current = false
-      })
+      }
+      mainChart.subscribeCrosshairMove(onMainCrosshairMove as never)
       // Crosshair sync: RSI → main
       chart.subscribeCrosshairMove((param) => {
         if (syncingRef.current) return
@@ -208,6 +210,13 @@ export function RsiChart({
         }
         syncingRef.current = false
       })
+
+      return () => {
+        mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(onMainRangeChange)
+        mainChart.unsubscribeCrosshairMove(onMainCrosshairMove as never)
+        chart.remove()
+        chartRef.current = null
+      }
     }
 
     return () => {
