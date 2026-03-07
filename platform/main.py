@@ -39,6 +39,8 @@ from services.twitter_service import TwitterService
 from services.agent_memory_service import AgentMemoryService
 from services.polymarket_service import PolymarketService
 from services.news_monitor_service import NewsMonitorService
+from services.landing_service import LandingService
+from services.catalyst_calendar_service import CatalystCalendarService
 
 # Load config once at module level - shared by all services
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -122,6 +124,7 @@ twitter_service: Optional[TwitterService] = None
 agent_memory: Optional[AgentMemoryService] = None
 polymarket_service: Optional[PolymarketService] = None
 news_monitor: Optional[NewsMonitorService] = None
+landing_service: Optional[LandingService] = None
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -312,6 +315,25 @@ async def initialize_news_monitor():
         news_monitor = None
 
 
+def initialize_landing_service():
+    """Initialize the landing command center service."""
+    global landing_service
+    try:
+        catalyst_service = CatalystCalendarService(
+            config=app_config,
+            news_monitor=news_monitor,
+        )
+        landing_service = LandingService(
+            config=app_config,
+            news_monitor=news_monitor,
+            catalyst_service=catalyst_service,
+        )
+        logger.info("Landing service initialized (with catalyst calendar)")
+    except Exception as e:
+        logger.warning(f"Landing service init failed (non-fatal): {e}")
+        landing_service = None
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
@@ -322,6 +344,7 @@ async def startup_event():
     await initialize_websocket_manager()
     await initialize_memory_service()
     await initialize_news_monitor()
+    initialize_landing_service()
 
     logger.info("FastAPI server startup complete")
 
@@ -1022,6 +1045,49 @@ async def news_monitor_status():
             "polymarket": polymarket_service.is_available() if polymarket_service else False,
         },
     }
+
+
+# ============== Landing Command Center Endpoints ==============
+
+
+@app.get("/api/landing/market-pulse")
+async def get_market_pulse():
+    """Market pulse: risk mode, sentiment, volatility, index changes."""
+    if not landing_service:
+        return JSONResponse({"error": "Landing service not available"}, status_code=503)
+    return landing_service.get_market_pulse()
+
+
+@app.get("/api/landing/movers")
+async def get_movers(limit: int = 10):
+    """Top gainers and losers by daily % change."""
+    if not landing_service:
+        return JSONResponse({"error": "Landing service not available"}, status_code=503)
+    return landing_service.get_movers(limit=limit)
+
+
+@app.get("/api/landing/themes")
+async def get_themes(limit: int = 6):
+    """Hot market themes derived from sector trends."""
+    if not landing_service:
+        return JSONResponse({"error": "Landing service not available"}, status_code=503)
+    return landing_service.get_themes(limit=limit)
+
+
+@app.get("/api/landing/macro-tape")
+async def get_macro_tape():
+    """Macro tape: VIX, Gold, Oil, SPY, QQQ, IWM prices and daily changes."""
+    if not landing_service:
+        return JSONResponse({"error": "Landing service not available"}, status_code=503)
+    return landing_service.get_macro_tape()
+
+
+@app.get("/api/landing/catalyst-clock")
+async def get_catalyst_clock(hours: int = 72):
+    """Upcoming catalyst events (V1 placeholder)."""
+    if not landing_service:
+        return JSONResponse({"error": "Landing service not available"}, status_code=503)
+    return landing_service.get_catalyst_clock(hours=hours)
 
 
 # ============== Agent Memory Endpoints ==============

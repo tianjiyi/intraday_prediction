@@ -1,179 +1,69 @@
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { useLandingStore } from '../stores/landingStore'
 import { useNewsStore } from '../stores/newsStore'
+import { fetchMarketPulse, fetchMacroTape, fetchMovers, fetchThemes, fetchCatalystClock } from '../api/landing'
 import { fetchNewsFeed } from '../api/news'
-import { formatTimeAgo } from '../utils/formatters'
-import { TrendingSectorsPanel } from '../components/TrendingSectorsPanel'
-import { BreakImpactPanel } from '../components/BreakImpactPanel'
-import { NewsFilters } from '../components/NewsFilters'
+import { MarketPulseStrip } from '../components/landing/MarketPulseStrip'
+import { MacroTape } from '../components/landing/MacroTape'
+import { CatalystClock } from '../components/landing/CatalystClock'
+import { MoversTable } from '../components/landing/MoversTable'
+import { HotThemes } from '../components/landing/HotThemes'
+import { NewsFlowPanel } from '../components/landing/NewsFlowPanel'
+import { TradeContextSnapshot } from '../components/landing/TradeContextSnapshot'
 import styles from './HomePage.module.css'
 
-const CATEGORY_COLORS: Record<string, string> = {
-  macro: '#FF9800',
-  earnings: '#2962FF',
-  policy: '#26A69A',
-  geopolitics: '#ef5350',
-  company_specific: '#42A5F5',
-  market_structure: '#ab47bc',
-}
+const REFRESH_INTERVAL = 60_000
 
-const CATEGORY_LABELS: Record<string, string> = {
-  all: 'All',
-  macro: 'Macro',
-  earnings: 'Earnings',
-  policy: 'Policy',
-  geopolitics: 'Geopolitics',
-  company_specific: 'Company',
-  market_structure: 'Structure',
-}
+function loadLandingData() {
+  const { setPulse, setMacroTape, setMovers, setThemes, setCatalysts, setLoading, setError } = useLandingStore.getState()
+  setLoading(true)
+  setError(null)
 
-const TIER_COLORS: Record<string, string> = {
-  critical: '#ef5350',
-  high: '#FF9800',
+  Promise.all([
+    fetchMarketPulse().then(setPulse).catch(() => {}),
+    fetchMacroTape().then((d) => setMacroTape(d.items)).catch(() => {}),
+    fetchMovers(10).then((d) => setMovers(d.gainers, d.losers)).catch(() => {}),
+    fetchThemes(6).then((d) => setThemes(d.themes)).catch(() => {}),
+    fetchCatalystClock(72).then((d) => setCatalysts(d.events)).catch(() => {}),
+  ])
+    .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
+    .finally(() => setLoading(false))
 }
-
-const SOURCE_LABELS: Record<string, string> = {
-  'X.com': 'X',
-  Alpaca: 'A',
-  Benzinga: 'B',
-  benzinga: 'B',
-  Polymarket: 'P',
-}
-
-const CATEGORIES = ['all', 'macro', 'earnings', 'policy', 'geopolitics', 'company_specific', 'market_structure']
 
 export function HomePage() {
-  const navigate = useNavigate()
-  const items = useNewsStore((s) => s.items)
-  const activeCategory = useNewsStore((s) => s.activeCategory)
-  const criticalOnly = useNewsStore((s) => s.criticalOnly)
-  const selectedSector = useNewsStore((s) => s.selectedSector)
-  const setCategory = useNewsStore((s) => s.setCategory)
-  const setItems = useNewsStore((s) => s.setItems)
+  const error = useLandingStore((s) => s.error)
+  const setNewsItems = useNewsStore((s) => s.setItems)
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined)
 
   useEffect(() => {
-    fetchNewsFeed('all', 50)
-      .then((data) => setItems(data.items))
-      .catch(console.error)
-  }, [setItems])
+    loadLandingData()
 
-  // Apply filters
-  let filtered = items
-  if (activeCategory !== 'all') {
-    filtered = filtered.filter((i) => i.category === activeCategory)
-  }
-  if (criticalOnly) {
-    filtered = filtered.filter((i) => i.impact_tier === 'critical')
-  }
-  if (selectedSector) {
-    filtered = filtered.filter((i) => i.sector_tags?.includes(selectedSector))
-  }
+    fetchNewsFeed('all', 50)
+      .then((data) => setNewsItems(data.items))
+      .catch(console.error)
+
+    intervalRef.current = setInterval(loadLandingData, REFRESH_INTERVAL)
+    return () => clearInterval(intervalRef.current)
+  }, [setNewsItems])
 
   return (
     <div className={styles.page}>
-      <TrendingSectorsPanel />
-      <BreakImpactPanel />
+      {error && <div className={styles.error}>{error}</div>}
 
-      <div className={styles.categoryBar}>
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            className={`${styles.catBtn} ${activeCategory === cat ? styles.active : ''}`}
-            onClick={() => setCategory(cat)}
-          >
-            {CATEGORY_LABELS[cat] || cat}
-          </button>
-        ))}
+      <MarketPulseStrip />
+      <MacroTape />
+
+      <div className={styles.grid}>
+        <CatalystClock />
+        <MoversTable />
       </div>
 
-      <NewsFilters />
-
-      <div className={styles.feed}>
-        {filtered.length === 0 && (
-          <p className={styles.empty}>Monitoring news sources...</p>
-        )}
-        {filtered.map((item) => (
-          <div
-            key={item.id}
-            className={styles.card}
-            onClick={() => {
-              const ticker = item.symbols?.[0]
-              if (ticker) navigate(`/chart/${ticker}`)
-            }}
-          >
-            <div className={styles.cardHeader}>
-              <span
-                className={styles.sourceIcon}
-                style={{ background: CATEGORY_COLORS[item.category] || '#9598a1' }}
-              >
-                {SOURCE_LABELS[item.source] || item.source?.[0] || '?'}
-              </span>
-              <span className={styles.time}>{formatTimeAgo(item.created_at)}</span>
-              <span
-                className={styles.catTag}
-                style={{ color: CATEGORY_COLORS[item.category] }}
-              >
-                {(CATEGORY_LABELS[item.category] || item.category || '').toUpperCase().slice(0, 4)}
-              </span>
-
-              {/* Impact tier badge */}
-              {item.impact_tier && TIER_COLORS[item.impact_tier] && (
-                <span style={{
-                  fontSize: 9, fontWeight: 700, color: '#fff',
-                  background: TIER_COLORS[item.impact_tier],
-                  borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase',
-                }}>
-                  {item.impact_tier}
-                </span>
-              )}
-
-              {item.sentiment === 'bullish' && <span className={styles.bull}>+</span>}
-              {item.sentiment === 'bearish' && <span className={styles.bear}>-</span>}
-            </div>
-
-            <p className={styles.headline}>{item.headline}</p>
-
-            {item.symbols && item.symbols.length > 0 && (
-              <div className={styles.symbols}>{item.symbols.join(', ')}</div>
-            )}
-
-            {/* Sector tags */}
-            {item.sector_tags && item.sector_tags.length > 0 && (
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                {item.sector_tags.map((tag) => (
-                  <span key={tag} style={{
-                    fontSize: 9, color: 'var(--text-muted)',
-                    background: 'var(--bg-surface)', borderRadius: 3, padding: '1px 5px',
-                  }}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {item.probability != null && (
-              <div className={styles.probBar}>
-                <div className={styles.probBg}>
-                  <div
-                    className={styles.probFill}
-                    style={{ width: `${Math.round(item.probability * 100)}%` }}
-                  />
-                </div>
-                <span className={styles.probPct}>
-                  {Math.round(item.probability * 100)}% Yes
-                </span>
-              </div>
-            )}
-
-            {item.source === 'X.com' && (item.views || item.likes) ? (
-              <div className={styles.engagement}>
-                {item.views ? `${item.views} views` : ''}
-                {item.likes ? ` · ${item.likes} likes` : ''}
-              </div>
-            ) : null}
-          </div>
-        ))}
+      <div className={styles.grid}>
+        <HotThemes />
+        <NewsFlowPanel />
       </div>
+
+      <TradeContextSnapshot />
     </div>
   )
 }

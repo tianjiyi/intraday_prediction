@@ -15,6 +15,17 @@ export function ChartPage() {
   const { symbol = 'QQQ' } = useParams<{ symbol: string }>()
   const upperSymbol = symbol.toUpperCase()
 
+  // Clear stale data synchronously during render when symbol changes,
+  // BEFORE the new TradingChart (keyed by symbol) mounts with old data.
+  const prevSymbolRef = useRef(upperSymbol)
+  if (prevSymbolRef.current !== upperSymbol) {
+    prevSymbolRef.current = upperSymbol
+    const store = useMarketStore.getState()
+    store.setHistoricalData([])
+    store.setPrediction(null)
+    store.setLoading(true)
+  }
+
   const timeframe = useMarketStore((s) => s.timeframe)
   const setTimeframe = useMarketStore((s) => s.setTimeframe)
   const historicalData = useMarketStore((s) => s.historicalData)
@@ -73,6 +84,7 @@ export function ChartPage() {
       <div className={styles.chartsArea}>
         <div className={styles.chartsWrapper}>
           <TradingChart
+            key={upperSymbol}
             ref={chartHandleRef}
             symbol={upperSymbol}
             timeframe={timeframe}
@@ -87,6 +99,7 @@ export function ChartPage() {
             <>
               <div className={styles.divider} onMouseDown={rsiResize.onMouseDown} />
               <RsiChart
+                key={`rsi-${upperSymbol}`}
                 timeframe={timeframe}
                 historicalData={historicalData}
                 mainChartRef={chartHandleRef}
@@ -99,6 +112,7 @@ export function ChartPage() {
             onMouseDown={volResize.onMouseDown}
           />
           <VolumeChart
+            key={`vol-${upperSymbol}`}
             timeframe={timeframe}
             historicalData={historicalData}
             mainChartRef={chartHandleRef}

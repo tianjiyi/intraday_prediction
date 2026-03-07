@@ -35,9 +35,13 @@ export function useChartData(symbol: string, timeframe: number) {
       }
     }
 
-    // Also set the symbol in the store
-    useMarketStore.getState().setSymbol(symbol)
-    useMarketStore.getState().setTimeframe(timeframe)
+    // Clear stale data and block incoming bar updates until new data loads
+    const store = useMarketStore.getState()
+    store.setSymbol(symbol)
+    store.setTimeframe(timeframe)
+    store.setPrediction(null)
+    store.setHistoricalData([])
+    store.setLoading(true)  // blocks updateBar/addBar until setHistoricalData clears it
 
     load()
 

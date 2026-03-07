@@ -225,8 +225,16 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
         unsub()
         chart.remove()
         chartRef.current = null
+        csRef.current = null
+        predRef.current = null
+        confRefs.current = {}
+        smaRefs.current = {}
+        dtVwapRef.current = null
+        dtBandRefs.current = {}
+        aggBarRef.current = null
+        prevDataLenRef.current = 0
       }
-    }, [])
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     // EFFECT 2a: Set historical candle data only when data is bulk-replaced
     // (initial load or timeframe change), not on every real-time tick.
@@ -237,7 +245,7 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       const cs = csRef.current
       if (!cs || historicalData.length === 0) return
 
-      // Detect bulk data replacement: timeframe changed, length changed significantly, or first load
+      // Detect bulk data replacement
       const tfChanged = timeframe !== prevTimeframeRef.current
       const lenDiff = historicalData.length - prevHistLenRef.current
       const isBulkReplace = prevHistLenRef.current === 0 || tfChanged || lenDiff < -5 || lenDiff > 50

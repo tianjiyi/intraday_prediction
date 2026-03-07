@@ -1,0 +1,116 @@
+.panel {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1;
+}
+
+.tableSection {}
+
+.sectionLabel {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.gainersLabel {
+  color: var(--green);
+}
+
+.losersLabel {
+  color: var(--red);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+}
+
+.row:hover {
+  background: var(--bg-surface);
+}
+
+.symbol {
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 48px;
+}
+
+.price {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.pct {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.sector {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.positive {
+  color: var(--green);
+}
+
+.negative {
+  color: var(--red);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.skeleton {
+  height: 260px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .tables {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}

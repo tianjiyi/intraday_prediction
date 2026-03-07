@@ -110,14 +110,14 @@ cd platform && pip install -r requirements.txt
 - **Kronos**: Optional - set `model.enabled: false` in config.yaml to disable. Platform runs with data-only mode (no forecast bands).
 
 ## Remote Access (Cloudflare Tunnel)
-- **URL**: https://ai.dnthetatechnologies.com
+- **URL**: https://alpha.dnthetatechnologies.com
 - **Auth**: Cloudflare Access (email OTP, jtian@dnthetatechnologies.com only)
 - **Tunnel**: `my-pc` (ID `b551fdbf-fdb1-403f-8e8f-932ef3812609`)
 - **Config**: `C:\Users\skysn\.cloudflared\config.yml`
 - **Service**: `cloudflared` Windows service (Automatic, Running)
 - **Routes**:
   - `rdp.dnthetatechnologies.com` → `tcp://localhost:3389` (RDP)
-  - `ai.dnthetatechnologies.com` → `http://localhost:5000` (Chart app)
+  - `alpha.dnthetatechnologies.com` → `http://localhost:5000` (Chart app)
 - **WebSocket**: Uses `wss://` automatically when page is served over HTTPS
 
 ## Important Reminders

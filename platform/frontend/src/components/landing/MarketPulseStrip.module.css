@@ -1,0 +1,110 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.riskBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.riskScore {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.riskOn {
+  background: rgba(38, 166, 154, 0.15);
+  color: var(--green);
+}
+
+.riskOff {
+  background: rgba(239, 83, 80, 0.15);
+  color: var(--red);
+}
+
+.mixed {
+  background: rgba(255, 152, 0, 0.15);
+  color: var(--orange);
+}
+
+.divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metricLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.metricValue {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.volDetail {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.changeSummary {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.skeleton {
+  height: 52px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .strip {
+    padding: 10px 14px;
+    gap: 12px;
+  }
+  .changeSummary {
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .divider {
+    display: none;
+  }
+}
