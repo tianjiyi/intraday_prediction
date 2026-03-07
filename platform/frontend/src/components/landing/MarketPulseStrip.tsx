@@ -21,6 +21,10 @@ export function MarketPulseStrip() {
 
   if (!pulse) return null
 
+  // API returned but no real market data yet — show skeleton instead of misleading defaults
+  const hasData = pulse.change_summary !== 'No data' && pulse.volatility_level > 0
+  if (!hasData) return <div className={styles.skeleton} />
+
   const volColor = pulse.volatility_state === 'high' ? 'var(--red)'
     : pulse.volatility_state === 'elevated' ? 'var(--orange)' : undefined
 
