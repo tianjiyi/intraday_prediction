@@ -1,12 +1,12 @@
 """
-Fear & Greed Index + CBOE Put/Call Ratio Service.
+Fear & Greed Index + Put/Call Ratio Service.
 
-Fetches CNN Fear & Greed Index and CBOE equity put/call ratio
+Fetches CNN Fear & Greed Index and SPY put/call ratio (via Alpaca options)
 for the Market Pulse strip.
 """
 
-import io
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -17,9 +17,6 @@ logger = logging.getLogger(__name__)
 
 # CNN Fear & Greed data endpoint (no auth required)
 CNN_FNG_URL = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata'
-
-# CBOE equity put/call ratio CSV
-CBOE_PCR_URL = 'https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/equitypc.csv'
 
 FNG_LABELS = {
     (0, 25): 'Extreme Fear',
@@ -41,12 +38,31 @@ class FearGreedService:
     def __init__(self, config: Dict[str, Any]):
         fg_config = config.get('landing', {}).get('fear_greed', {})
         self._fng_cache_ttl = fg_config.get('fng_cache_ttl', 300)  # 5 min
-        self._pcr_cache_ttl = fg_config.get('pcr_cache_ttl', 3600)  # 1 hour
+        self._pcr_cache_ttl = fg_config.get('pcr_cache_ttl', 300)  # 5 min
 
         self._fng_cache: Optional[Dict] = None
         self._fng_cache_at: float = 0
         self._pcr_cache: Optional[Dict] = None
         self._pcr_cache_at: float = 0
+
+        # Alpaca options client
+        self._opt_client = None
+        self._init_alpaca_options()
+
+    def _init_alpaca_options(self):
+        try:
+            from alpaca.data.historical.option import OptionHistoricalDataClient
+            api_key = os.environ.get('ALPACA_KEY_ID', '')
+            secret_key = os.environ.get('ALPACA_SECRET_KEY', '')
+            if api_key and secret_key:
+                self._opt_client = OptionHistoricalDataClient(
+                    api_key=api_key, secret_key=secret_key
+                )
+                logger.info("FearGreedService: Alpaca options client initialized")
+            else:
+                logger.warning("FearGreedService: No Alpaca credentials for options")
+        except Exception as e:
+            logger.warning(f"FearGreedService: Alpaca options init failed: {e}")
 
     def get_fear_greed(self) -> Dict[str, Any]:
         now = time.time()
@@ -65,7 +81,6 @@ class FearGreedService:
             resp.raise_for_status()
             data = resp.json()
 
-            # CNN returns nested structure with fear_and_greed.score and .rating
             fng = data.get('fear_and_greed', {})
             score = fng.get('score', None)
             rating = fng.get('rating', '')
@@ -73,7 +88,6 @@ class FearGreedService:
             if score is not None:
                 score = round(float(score), 1)
                 label = rating if rating else _fng_label(score)
-                # Also get previous close for change
                 prev = fng.get('previous_close', None)
                 change = round(score - float(prev), 1) if prev is not None else None
 
@@ -101,64 +115,47 @@ class FearGreedService:
         if self._pcr_cache and (now - self._pcr_cache_at) < self._pcr_cache_ttl:
             return self._pcr_cache
 
+        if not self._opt_client:
+            result = self._pcr_unavailable('No options client available')
+            self._pcr_cache = result
+            self._pcr_cache_at = now
+            return result
+
         try:
-            resp = requests.get(
-                CBOE_PCR_URL,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
+            from alpaca.data.requests import OptionChainRequest
+            req = OptionChainRequest(underlying_symbol='SPY')
+            chain = self._opt_client.get_option_chain(req)
 
-            # Parse CSV — columns: TRADE DATE, CALLS, PUTS, TOTAL, P/C RATIO
-            import pandas as pd
-            df = pd.read_csv(io.StringIO(resp.text))
+            put_vol = 0.0
+            call_vol = 0.0
 
-            # Normalize column names
-            df.columns = [c.strip().upper() for c in df.columns]
+            for symbol, snap in chain.items():
+                # Get volume from latest trade
+                trade = getattr(snap, 'latest_trade', None)
+                vol = float(trade.size) if trade and hasattr(trade, 'size') and trade.size else 0.0
 
-            # Find the ratio column
-            ratio_col = None
-            for c in df.columns:
-                if 'RATIO' in c or 'P/C' in c:
-                    ratio_col = c
-                    break
+                # Determine put vs call from symbol suffix
+                # Alpaca option symbols: SPY250307P00600000
+                if 'P' in symbol[-10:]:
+                    put_vol += vol
+                elif 'C' in symbol[-10:]:
+                    call_vol += vol
 
-            if ratio_col is None:
-                result = self._pcr_unavailable('No ratio column found in CSV')
+            if call_vol > 0:
+                ratio = round(put_vol / call_vol, 3)
+                result = {
+                    'ratio': ratio,
+                    'put_volume': int(put_vol),
+                    'call_volume': int(call_vol),
+                    'underlying': 'SPY',
+                    'source': 'alpaca',
+                    'updated_at': datetime.now(timezone.utc).isoformat(),
+                }
             else:
-                # Get latest row
-                df = df.dropna(subset=[ratio_col])
-                if df.empty:
-                    result = self._pcr_unavailable('Empty CSV data')
-                else:
-                    latest = df.iloc[-1]
-                    ratio = round(float(latest[ratio_col]), 3)
-
-                    # Get previous day for change
-                    prev_ratio = round(float(df.iloc[-2][ratio_col]), 3) if len(df) >= 2 else None
-                    change = round(ratio - prev_ratio, 3) if prev_ratio is not None else None
-
-                    # Find date column
-                    date_col = None
-                    for c in df.columns:
-                        if 'DATE' in c:
-                            date_col = c
-                            break
-                    trade_date = str(latest[date_col]).strip() if date_col else None
-
-                    result = {
-                        'ratio': ratio,
-                        'previous': prev_ratio,
-                        'change': change,
-                        'trade_date': trade_date,
-                        'source': 'cboe',
-                        'updated_at': datetime.now(timezone.utc).isoformat(),
-                    }
+                result = self._pcr_unavailable('No call volume data')
 
         except Exception as e:
-            logger.warning(f"CBOE Put/Call ratio fetch failed: {e}")
+            logger.warning(f"Put/Call ratio fetch failed: {e}")
             result = self._pcr_unavailable(str(e))
 
         self._pcr_cache = result
@@ -177,7 +174,7 @@ class FearGreedService:
     def _pcr_unavailable(self, reason: str) -> Dict:
         return {
             'ratio': None,
-            'source': 'cboe',
+            'source': 'alpaca',
             'error': reason,
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }

@@ -103,11 +103,7 @@ export function MarketPulseStrip() {
             <span className={styles.metricLabel}>P/C Ratio</span>
             <span className={styles.metricValue} style={{ color: pcrColor(pcr.ratio) }}>
               {pcr.ratio.toFixed(2)}
-              {pcr.change != null && (
-                <span className={styles.volDetail}>
-                  {' '}{pcr.change >= 0 ? '+' : ''}{pcr.change.toFixed(2)}
-                </span>
-              )}
+              <span className={styles.volDetail}> SPY</span>
             </span>
           </div>
         </>

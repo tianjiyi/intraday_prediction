@@ -10,9 +10,9 @@ export interface FearGreed {
 
 export interface PutCallRatio {
   ratio: number | null
-  previous?: number | null
-  change?: number | null
-  trade_date?: string | null
+  put_volume?: number
+  call_volume?: number
+  underlying?: string
   source: string
   error?: string
   updated_at: string
