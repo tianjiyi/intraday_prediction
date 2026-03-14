@@ -43,10 +43,10 @@ def make_variants() -> dict[str, DayXConfig]:
                    time_filter=True, trail_mode="progressive", trail_progressive_step=0.5)
     variants["v1_best"] = c
 
-    # v2: mean reversion + trend dip, VWAP targets, time filter, progressive trail
+    # v2: mean reversion + trend dip, fixed R targets, wider stops
     c = DayXConfig(symbol="QQQ", start_date="2020-01-01", end_date="2026-03-13",
                    require_exhaustion=False, strategies=["buy_dip", "sell_rip", "trend_dip"],
-                   use_vwap_target=True, mr_stop_atr_mult=2.0, trend_dip_stop_atr_mult=1.0,
+                   use_vwap_target=False, stop_atr_mult=2.0,
                    time_filter=True, trail_mode="progressive", trail_progressive_step=0.5)
     variants["v2_full"] = c
 

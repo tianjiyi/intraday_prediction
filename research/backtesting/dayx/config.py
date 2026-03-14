@@ -15,7 +15,7 @@ class DayXConfig:
     bb_period: int = 20
     bb_std: float = 2.0
     atr_period: int = 14
-    exhaustion_lookback: int = 8
+    exhaustion_lookback: int = 3
 
     # --- Opening range ---
     opening_range_bars: int = 1
@@ -44,7 +44,7 @@ class DayXConfig:
     trend_dip_stop_atr_mult: float = 1.0  # Tighter stop for trend dip
 
     # --- Risk / position management ---
-    stop_atr_mult: float = 1.5
+    stop_atr_mult: float = 2.0
     target1_r: float = 1.0
     target2_r: float = 2.0
     partial_exit_pct: float = 0.5
