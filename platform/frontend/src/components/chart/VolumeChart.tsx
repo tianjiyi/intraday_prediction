@@ -36,19 +36,20 @@ export function VolumeChart({
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#1e222d' },
+        background: { type: ColorType.Solid, color: '#0f1218' },
         textColor: '#d1d4dc',
       },
       grid: {
-        vertLines: { color: '#2B2B43' },
-        horzLines: { color: '#2B2B43' },
+        vertLines: { color: '#1c2030' },
+        horzLines: { color: '#1c2030' },
       },
       rightPriceScale: {
-        borderColor: '#2B2B43',
+        borderColor: '#1c2030',
         scaleMargins: { top: 0.1, bottom: 0 },
+        minimumWidth: 80,
       },
       timeScale: {
-        borderColor: '#2B2B43',
+        borderColor: '#1c2030',
         visible: false,
       },
       crosshair: { mode: CrosshairMode.Normal },
@@ -57,7 +58,7 @@ export function VolumeChart({
     chartRef.current = chart
 
     seriesRef.current = chart.addSeries(HistogramSeries, {
-      color: '#26a69a',
+      color: '#22d1a0',
       priceFormat: { type: 'volume' },
       priceScaleId: 'right',
     })
@@ -148,7 +149,7 @@ export function VolumeChart({
       s.update({
         time: last.time,
         value: last.volume ?? 0,
-        color: last.close >= last.open ? '#26a69a80' : '#ef535080',
+        color: last.close >= last.open ? '#22d1a0' : '#f7525f',
       } as never)
     })
     return unsub

@@ -8,8 +8,11 @@ interface ChatRequest {
   chat_history?: { role: string; content: string }[]
   session_id?: string
   selected_sector?: string
+  chart_screenshot?: string
   chart_state?: {
+    visible_time_range?: { from: number; to: number } | null
     day_trading: DayTradingChartState
+    drawings?: Record<string, unknown>[]
   }
 }
 

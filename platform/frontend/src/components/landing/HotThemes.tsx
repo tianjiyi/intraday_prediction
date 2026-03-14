@@ -1,4 +1,5 @@
 import { useLandingStore } from '../../stores/landingStore'
+import { useT } from '../../i18n'
 import styles from './HotThemes.module.css'
 
 const MOMENTUM_ARROWS: Record<string, string> = {
@@ -14,6 +15,7 @@ const SENTIMENT_COLORS: Record<string, string> = {
 }
 
 export function HotThemes() {
+  const t = useT()
   const themes = useLandingStore((s) => s.themes)
   const loading = useLandingStore((s) => s.loading)
 
@@ -21,30 +23,30 @@ export function HotThemes() {
 
   return (
     <div className={styles.panel}>
-      <div className={styles.title}>Hot Themes</div>
+      <div className={styles.title}>{t('themes.title')}</div>
       {themes.length === 0 ? (
-        <div className={styles.empty}>No active themes</div>
+        <div className={styles.empty}>{t('themes.empty')}</div>
       ) : (
         <div className={styles.grid}>
-          {themes.map((t) => (
-            <div key={t.name} className={styles.card}>
+          {themes.map((th) => (
+            <div key={th.name} className={styles.card}>
               <div className={styles.cardHeader}>
                 <div
                   className={styles.sentimentDot}
-                  style={{ background: SENTIMENT_COLORS[t.sentiment] || SENTIMENT_COLORS.neutral }}
+                  style={{ background: SENTIMENT_COLORS[th.sentiment] || SENTIMENT_COLORS.neutral }}
                 />
-                <span className={styles.themeName}>{t.name}</span>
-                <span className={`${styles.momentum} ${styles[t.momentum]}`}>
-                  {MOMENTUM_ARROWS[t.momentum] || '—'}
+                <span className={styles.themeName}>{th.name}</span>
+                <span className={`${styles.momentum} ${styles[th.momentum]}`}>
+                  {MOMENTUM_ARROWS[th.momentum] || '—'}
                 </span>
               </div>
-              {t.top_headline && (
-                <div className={styles.headline} title={t.top_headline}>
-                  {t.top_headline}
+              {th.top_headline && (
+                <div className={styles.headline} title={th.top_headline}>
+                  {th.top_headline}
                 </div>
               )}
               <div className={styles.meta}>
-                {t.item_count} items · Score {t.impact_score}
+                {th.item_count} {t('themes.items')} · {t('themes.score')} {th.impact_score}
               </div>
             </div>
           ))}

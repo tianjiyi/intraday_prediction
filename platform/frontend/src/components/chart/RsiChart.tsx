@@ -56,6 +56,7 @@ export function RsiChart({
   const obRef = useRef<ISeriesApi<'Line'> | null>(null)
   const osRef = useRef<ISeriesApi<'Line'> | null>(null)
   const midRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const midBandRef = useRef<ISeriesApi<'Baseline'> | null>(null)
   const syncingRef = useRef(false)
   const [currentRsi, setCurrentRsi] = useState<number | null>(null)
   const [currentSma, setCurrentSma] = useState<number | null>(null)
@@ -66,19 +67,20 @@ export function RsiChart({
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#1e222d' },
+        background: { type: ColorType.Solid, color: '#0f1218' },
         textColor: '#d1d4dc',
       },
       grid: {
-        vertLines: { color: '#2B2B43' },
-        horzLines: { color: '#2B2B43' },
+        vertLines: { color: '#1c2030' },
+        horzLines: { color: '#1c2030' },
       },
       rightPriceScale: {
-        borderColor: '#2B2B43',
+        borderColor: '#1c2030',
         scaleMargins: { top: 0.05, bottom: 0.05 },
+        minimumWidth: 80,
       },
       timeScale: {
-        borderColor: '#2B2B43',
+        borderColor: '#1c2030',
         visible: false,
       },
       crosshair: { mode: CrosshairMode.Normal },
@@ -111,6 +113,22 @@ export function RsiChart({
       bottomLineColor: 'transparent',
       bottomFillColor1: 'rgba(38, 166, 154, 0.05)',
       bottomFillColor2: 'rgba(38, 166, 154, 0.25)',
+      lineWidth: 1,
+      priceScaleId: 'right',
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    })
+
+    // Neutral mid-band fill (30–70)
+    midBandRef.current = chart.addSeries(BaselineSeries, {
+      baseValue: { type: 'price', price: 30 },
+      topLineColor: 'transparent',
+      topFillColor1: 'rgba(255, 255, 255, 0.04)',
+      topFillColor2: 'rgba(255, 255, 255, 0.04)',
+      bottomLineColor: 'transparent',
+      bottomFillColor1: 'transparent',
+      bottomFillColor2: 'transparent',
       lineWidth: 1,
       priceScaleId: 'right',
       lastValueVisible: false,
@@ -268,6 +286,7 @@ export function RsiChart({
       obRef.current?.setData(refLine(70) as never)
       midRef.current?.setData(refLine(50) as never)
       osRef.current?.setData(refLine(30) as never)
+      midBandRef.current?.setData(refLine(70) as never)
     }
 
     if (rsiPoints.length > 0) {
@@ -305,6 +324,7 @@ export function RsiChart({
         obRef.current?.update({ time: last.time, value: 70 } as never)
         midRef.current?.update({ time: last.time, value: 50 } as never)
         osRef.current?.update({ time: last.time, value: 30 } as never)
+        midBandRef.current?.update({ time: last.time, value: 70 } as never)
 
         // Update SMA
         const smaPoints = smaOfRsi(rsiPoints, SMA_PERIOD)

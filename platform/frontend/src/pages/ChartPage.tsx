@@ -2,6 +2,8 @@ import { useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useMarketStore } from '../stores/marketStore'
 import { useChartData } from '../hooks/useChartData'
+import { useDrawings } from '../hooks/useDrawings'
+import { useDrawingInteraction } from '../hooks/useDrawingInteraction'
 import { usePanelResize } from '../hooks/usePanelResize'
 import { useUiStore } from '../stores/uiStore'
 import { ChartToolbar } from '../components/chart/ChartToolbar'
@@ -45,6 +47,10 @@ export function ChartPage() {
 
   // Chart ref for volume sync
   const chartHandleRef = useRef<TradingChartHandle>(null)
+
+  // Drawing tools
+  useDrawings(chartHandleRef)
+  useDrawingInteraction(chartHandleRef)
 
   // Resizable panels
   const rsiResize = usePanelResize({

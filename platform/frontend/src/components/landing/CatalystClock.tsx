@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useLandingStore } from '../../stores/landingStore'
+import { useT } from '../../i18n'
 import type { CatalystEvent } from '../../types/landing'
 import styles from './CatalystClock.module.css'
 
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return 'NOW'
+function formatCountdown(seconds: number, t: (key: string) => string): string {
+  if (seconds <= 0) return t('catalyst.now')
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -13,14 +14,14 @@ function formatCountdown(seconds: number): string {
   return `${m}m`
 }
 
-function formatTimeAgo(iso: string): string {
+function formatTimeAgo(iso: string, t: (key: string) => string): string {
   try {
     const diff = Date.now() - new Date(iso).getTime()
     const h = Math.floor(diff / 3600000)
     const d = Math.floor(h / 24)
-    if (d > 0) return `${d}d ago`
-    if (h > 0) return `${h}h ago`
-    return 'just now'
+    if (d > 0) return `${d}${t('catalyst.dAgo')}`
+    if (h > 0) return `${h}${t('catalyst.hAgo')}`
+    return t('catalyst.justNow')
   } catch {
     return ''
   }
@@ -42,7 +43,7 @@ function impactClass(impact: string): string {
   return styles.impactLow
 }
 
-function EventRow({ event }: { event: CatalystEvent }) {
+function EventRow({ event, t }: { event: CatalystEvent; t: (key: string) => string }) {
   const isPast = event.status === 'past'
   const [countdown, setCountdown] = useState(event.countdown_seconds ?? 0)
 
@@ -67,7 +68,7 @@ function EventRow({ event }: { event: CatalystEvent }) {
           <span className={styles.eventTime}>{formatEventTime(event.time)}</span>
           {isPast && hasActual ? (
             <span className={styles.actualValue}>
-              Actual: {event.actual}{event.prior ? ` (Prior: ${event.prior})` : ''}
+              {t('catalyst.actual')}{event.actual}{event.prior ? ` ${t('catalyst.prior')}${event.prior})` : ''}
             </span>
           ) : (
             event.detail && <span className={styles.eventDetail}>{event.detail}</span>
@@ -76,14 +77,14 @@ function EventRow({ event }: { event: CatalystEvent }) {
       </div>
       <div className={styles.eventRight}>
         {isPast ? (
-          <span className={styles.timeAgo}>{formatTimeAgo(event.time)}</span>
+          <span className={styles.timeAgo}>{formatTimeAgo(event.time, t)}</span>
         ) : (
           <span className={`${styles.countdown} ${countdown === 0 ? styles.countdownNow : ''}`}>
-            {formatCountdown(countdown)}
+            {formatCountdown(countdown, t)}
           </span>
         )}
         {event.source === 'inferred_news' && (
-          <span className={styles.sourceBadge}>inferred</span>
+          <span className={styles.sourceBadge}>{t('catalyst.inferred')}</span>
         )}
       </div>
     </div>
@@ -91,6 +92,7 @@ function EventRow({ event }: { event: CatalystEvent }) {
 }
 
 export function CatalystClock() {
+  const t = useT()
   const catalysts = useLandingStore((s) => s.catalysts)
   const pastEvents = catalysts.filter((e) => e.status === 'past')
   const upcomingEvents = catalysts.filter((e) => e.status !== 'past')
@@ -98,28 +100,28 @@ export function CatalystClock() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <span className={styles.title}>Catalyst Clock</span>
+        <span className={styles.title}>{t('catalyst.title')}</span>
         {catalysts.length > 0 && (
           <span className={styles.count}>{catalysts.length}</span>
         )}
       </div>
       {catalysts.length === 0 ? (
-        <div className={styles.placeholder}>No catalysts in window</div>
+        <div className={styles.placeholder}>{t('catalyst.empty')}</div>
       ) : (
         <div className={styles.eventList}>
           {upcomingEvents.length > 0 && (
             <>
-              <div className={styles.sectionLabel}>Upcoming</div>
+              <div className={styles.sectionLabel}>{t('catalyst.upcoming')}</div>
               {upcomingEvents.map((evt) => (
-                <EventRow key={evt.id} event={evt} />
+                <EventRow key={evt.id} event={evt} t={t} />
               ))}
             </>
           )}
           {pastEvents.length > 0 && (
             <>
-              <div className={styles.sectionLabel}>Recent (72h)</div>
+              <div className={styles.sectionLabel}>{t('catalyst.recent')}</div>
               {pastEvents.map((evt) => (
-                <EventRow key={evt.id} event={evt} />
+                <EventRow key={evt.id} event={evt} t={t} />
               ))}
             </>
           )}

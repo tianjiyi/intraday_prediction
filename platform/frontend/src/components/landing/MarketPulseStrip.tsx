@@ -1,10 +1,11 @@
 import { useLandingStore } from '../../stores/landingStore'
+import { useT } from '../../i18n'
 import styles from './MarketPulseStrip.module.css'
 
-const RISK_LABELS: Record<string, string> = {
-  risk_on: 'Risk On',
-  risk_off: 'Risk Off',
-  mixed: 'Mixed',
+const RISK_LABEL_KEYS: Record<string, string> = {
+  risk_on: 'pulse.riskOn',
+  risk_off: 'pulse.riskOff',
+  mixed: 'pulse.mixed',
 }
 
 const RISK_CLASSES: Record<string, string> = {
@@ -30,6 +31,7 @@ function pcrColor(ratio: number): string {
 }
 
 export function MarketPulseStrip() {
+  const t = useT()
   const pulse = useLandingStore((s) => s.pulse)
   const loading = useLandingStore((s) => s.loading)
 
@@ -53,14 +55,14 @@ export function MarketPulseStrip() {
         <span style={{ fontSize: 14 }}>
           {pulse.risk_mode === 'risk_on' ? '▲' : pulse.risk_mode === 'risk_off' ? '▼' : '◆'}
         </span>
-        {RISK_LABELS[pulse.risk_mode] || pulse.risk_mode}
+        {RISK_LABEL_KEYS[pulse.risk_mode] ? t(RISK_LABEL_KEYS[pulse.risk_mode]) : pulse.risk_mode}
         <span className={styles.riskScore}>{pulse.risk_score > 0 ? '+' : ''}{pulse.risk_score}</span>
       </div>
 
       <div className={styles.divider} />
 
       <div className={styles.metric}>
-        <span className={styles.metricLabel}>Sentiment</span>
+        <span className={styles.metricLabel}>{t('pulse.sentiment')}</span>
         <span
           className={styles.metricValue}
           style={{ color: pulse.sentiment_score > 0 ? 'var(--green)' : pulse.sentiment_score < 0 ? 'var(--red)' : undefined }}
@@ -72,7 +74,7 @@ export function MarketPulseStrip() {
       <div className={styles.divider} />
 
       <div className={styles.metric}>
-        <span className={styles.metricLabel}>Volatility</span>
+        <span className={styles.metricLabel}>{t('pulse.volatility')}</span>
         <span className={styles.metricValue} style={{ color: volColor }}>
           {pulse.volatility_state.charAt(0).toUpperCase() + pulse.volatility_state.slice(1)}
           {pulse.volatility_level > 0 && (
@@ -87,7 +89,7 @@ export function MarketPulseStrip() {
         <>
           <div className={styles.divider} />
           <div className={styles.metric}>
-            <span className={styles.metricLabel}>Fear & Greed</span>
+            <span className={styles.metricLabel}>{t('pulse.fearGreed')}</span>
             <span className={styles.metricValue} style={{ color: fngColor(fng.score) }}>
               {fng.score}
               <span className={styles.volDetail}> {fng.label}</span>
@@ -100,7 +102,7 @@ export function MarketPulseStrip() {
         <>
           <div className={styles.divider} />
           <div className={styles.metric}>
-            <span className={styles.metricLabel}>P/C Ratio</span>
+            <span className={styles.metricLabel}>{t('pulse.pcRatio')}</span>
             <span className={styles.metricValue} style={{ color: pcrColor(pcr.ratio) }}>
               {pcr.ratio.toFixed(2)}
               <span className={styles.volDetail}> SPY</span>

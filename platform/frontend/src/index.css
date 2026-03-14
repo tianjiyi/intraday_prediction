@@ -1,7 +1,7 @@
 :root {
-  --bg-primary: #131722;
-  --bg-secondary: #1e222d;
-  --bg-surface: #252936;
+  --bg-primary: #0a0e17;
+  --bg-secondary: #0f1218;
+  --bg-surface: #181c26;
   --border: #2B2B43;
   --border-hover: #363A45;
   --text-primary: #d1d4dc;
@@ -9,8 +9,8 @@
   --text-muted: #868b95;
   --accent: #2962FF;
   --accent-hover: #1e88e5;
-  --green: #26a69a;
-  --red: #ef5350;
+  --green: #22d1a0;
+  --red: #f7525f;
   --orange: #FF9800;
   --purple: #ab47bc;
 }

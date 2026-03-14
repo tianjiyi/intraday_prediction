@@ -19,8 +19,9 @@ websockets==10.4  # Must stay 10.x for alpaca-trade-api compatibility
 torch>=2.0.0
 transformers>=4.30.0
 
-# LLM analysis (Gemini)
+# LLM analysis
 google-generativeai>=0.3.0
+anthropic>=0.80.0
 
 # Twitter/X API client
 httpx>=0.27.0

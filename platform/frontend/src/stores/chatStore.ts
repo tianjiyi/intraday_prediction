@@ -4,6 +4,8 @@ import { sendChatMessage, formatHistory } from '../api/chat'
 import { useNewsStore } from './newsStore'
 import { useMarketStore } from './marketStore'
 import { useUiStore } from './uiStore'
+import { useDrawingStore } from './drawingStore'
+import { captureChartScreenshot, getVisibleTimeRange } from '../utils/chartRegistry'
 
 interface ChatState {
   messages: ChatMessage[]
@@ -74,18 +76,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { timeframe, dayTradingVwap } = useMarketStore.getState()
       const { dayTradingMode } = useUiStore.getState()
       const dtEnabled = dayTradingMode && [1, 5, 15].includes(timeframe)
+      const drawings = useDrawingStore.getState().drawings
+      const chartScreenshot = captureChartScreenshot()
       const data = await sendChatMessage({
         message: text,
         symbol: symbol || 'QQQ',
         chat_history: history,
         session_id: get().sessionId || undefined,
         selected_sector: selectedSector || undefined,
+        chart_screenshot: chartScreenshot,
         chart_state: {
+          visible_time_range: getVisibleTimeRange() || null,
           day_trading: {
             enabled: dtEnabled,
             timeframe_minutes: timeframe,
             vwap: dtEnabled ? dayTradingVwap : null,
           },
+          drawings: drawings.map((d) => ({
+            type: d.type,
+            label: d.label,
+            price: d.price,
+            priceHigh: d.priceHigh,
+            priceLow: d.priceLow,
+            startPrice: d.startPrice,
+            endPrice: d.endPrice,
+            color: d.color,
+            source: d.source,
+          })),
         },
       })
 

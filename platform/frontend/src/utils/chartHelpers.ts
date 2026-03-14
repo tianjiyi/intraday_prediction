@@ -9,17 +9,21 @@ export function buildChartOptions(
 ): DeepPartial<ChartOptions> {
   return {
     layout: {
-      background: { type: ColorType.Solid, color: '#1e222d' },
+      background: { type: ColorType.Solid, color: '#0f1218' },
       textColor: '#d1d4dc',
     },
     grid: {
-      vertLines: { color: '#2B2B43' },
-      horzLines: { color: '#2B2B43' },
+      vertLines: { color: '#1c2030' },
+      horzLines: { color: '#1c2030' },
     },
     crosshair: { mode: CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#2B2B43' },
+    rightPriceScale: {
+      borderColor: '#1c2030',
+      scaleMargins: { top: 0.05, bottom: 0.05 },
+      minimumWidth: 80,
+    },
     timeScale: {
-      borderColor: '#2B2B43',
+      borderColor: '#1c2030',
       timeVisible: true,
       secondsVisible: false,
       tickMarkFormatter: (t: number) => {
@@ -128,7 +132,7 @@ export function splitCandlesVolume(bars: OhlcvBar[]) {
   const volumes = bars.map((b) => ({
     time: b.time,
     value: b.volume ?? 0,
-    color: b.close >= b.open ? '#26a69a80' : '#ef535080',
+    color: b.close >= b.open ? '#22d1a0' : '#f7525f',
   }))
   return { candles, volumes }
 }

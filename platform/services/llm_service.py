@@ -1,6 +1,6 @@
 """
 LLM Service for Trading Analysis
-Provides integration with Gemini (and extensible to other LLMs) for:
+Provides integration with Claude (Anthropic) for:
 - Technical analysis based on Kronos predictions
 - Trading rule enforcement
 - Market sentiment analysis
@@ -34,17 +34,20 @@ llm_file_handler.setFormatter(logging.Formatter(
 ))
 llm_context_logger.addHandler(llm_file_handler)
 
-# Try to import google.generativeai
+# Try to import anthropic
 try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
 except ImportError:
-    GEMINI_AVAILABLE = False
-    logger.warning("google-generativeai not installed. Run: pip install google-generativeai")
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic not installed. Run: pip install anthropic")
+
+# For Ollama native API
+import httpx
 
 
 class LLMService:
-    """LLM Service for trading analysis using Gemini"""
+    """LLM Service for trading analysis using Claude (Anthropic)"""
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -55,31 +58,94 @@ class LLMService:
         """
         self.config = config
         self.llm_config = config.get('llm', {})
-        self.provider = self.llm_config.get('provider', 'gemini')
-        self.model_name = self.llm_config.get('model', 'gemini-2.0-flash')
-        self.api_key = self.llm_config.get('api_key') or os.environ.get('GEMINI_API_KEY')
-        self.model = None
+        self.provider = self.llm_config.get('provider', 'anthropic')
+        self.model_name = self.llm_config.get('model', 'claude-opus-4-6')
+        self.base_url = self.llm_config.get('base_url', None)
+        self.api_key = os.environ.get('ANTHROPIC_API_KEY') or self.llm_config.get('api_key')
+        self.client = None
         self.trading_rules = None
+        self.supports_vision = self.provider == 'anthropic'
 
         self._init_llm()
         self._load_trading_rules()
 
     def _init_llm(self):
-        """Initialize the LLM client"""
-        if not GEMINI_AVAILABLE:
-            logger.error("Gemini SDK not available")
-            return
+        """Initialize the LLM client based on provider"""
+        if self.provider == 'ollama':
+            try:
+                base_url = self.base_url or 'http://localhost:11434'
+                self.client = httpx.Client(base_url=base_url, timeout=120.0)
+                # Test connection
+                resp = self.client.get('/api/tags')
+                resp.raise_for_status()
+                logger.info(f"Ollama LLM initialized: {self.model_name} at {base_url}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Ollama client: {e}")
+                self.client = None
 
-        if not self.api_key:
-            logger.warning("No Gemini API key configured. Set GEMINI_API_KEY env var or add to config.yaml")
-            return
+        elif self.provider == 'anthropic':
+            if not ANTHROPIC_AVAILABLE:
+                logger.error("Anthropic SDK not available")
+                return
+            if not self.api_key:
+                logger.warning("No Anthropic API key configured. Set ANTHROPIC_API_KEY env var.")
+                return
+            try:
+                self.client = anthropic.Anthropic(api_key=self.api_key)
+                logger.info(f"Anthropic LLM initialized with model: {self.model_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Anthropic: {e}")
 
-        try:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.model_name)
-            logger.info(f"Gemini LLM initialized with model: {self.model_name}")
-        except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+        else:
+            logger.error(f"Unknown LLM provider: {self.provider}")
+
+    def _generate(self, prompt: str, image_base64: Optional[str] = None, max_tokens: int = 4096) -> str:
+        """
+        Unified generation method — calls LLM API with text and optional image.
+
+        Args:
+            prompt: The text prompt
+            image_base64: Optional base64-encoded PNG image (Anthropic only)
+            max_tokens: Max tokens in response
+
+        Returns:
+            Response text from LLM
+        """
+        if self.provider == 'ollama':
+            if image_base64:
+                logger.debug("Image provided but Ollama/Qwen does not support vision — skipping image")
+            resp = self.client.post('/api/chat', json={
+                'model': self.model_name,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'stream': False,
+                'think': False,
+                'options': {'num_predict': max_tokens},
+            })
+            resp.raise_for_status()
+            return resp.json()['message']['content']
+
+        # Anthropic provider (supports multimodal)
+        content = []
+
+        if image_base64:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": image_base64,
+                },
+            })
+
+        content.append({"type": "text", "text": prompt})
+
+        response = self.client.messages.create(
+            model=self.model_name,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": content}],
+        )
+
+        return response.content[0].text
 
     def _load_trading_rules(self):
         """Load trading rules from file"""
@@ -107,7 +173,7 @@ class LLMService:
 
     def is_available(self) -> bool:
         """Check if LLM service is available"""
-        return self.model is not None
+        return self.client is not None
 
     def _log_llm_context(self, method_name: str, prompt: str, response: str = None, error: str = None):
         """
@@ -233,8 +299,7 @@ Please provide:
 Keep the analysis concise but insightful. Use bullet points for clarity."""
 
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text
+            response_text = self._generate(prompt)
             self._log_llm_context('analyze_technical', prompt, response=response_text)
             return response_text
         except Exception as e:
@@ -295,8 +360,7 @@ Keep the analysis concise but insightful. Use bullet points for clarity."""
 Be direct and firm - the trader needs honest feedback to stay disciplined."""
 
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text
+            response_text = self._generate(prompt)
             self._log_llm_context('check_trading_rules', prompt, response=response_text)
             return response_text
         except Exception as e:
@@ -350,8 +414,7 @@ Be direct and firm - the trader needs honest feedback to stay disciplined."""
 Provide a concise but comprehensive sentiment summary."""
 
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text
+            response_text = self._generate(prompt)
             self._log_llm_context('analyze_sentiment', prompt, response=response_text)
             return response_text
         except Exception as e:
@@ -508,8 +571,7 @@ Be specific: "Long bias above Daily SMA5, fade at Bollinger Upper" etc.
 Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
 
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text
+            response_text = self._generate(prompt)
             self._log_llm_context('generate_daily_highlights', prompt, response=response_text)
             return response_text
         except Exception as e:
@@ -562,6 +624,8 @@ Keep it SHORT and ACTIONABLE. Daily SMA 5 is THE key level."""
         memory_context: str = "",
         news_context: str = "",
         chart_state: Optional[Dict[str, Any]] = None,
+        market_env_context: str = "",
+        trade_ctx_context: str = "",
     ) -> str:
         """
         Chat with the LLM using current market context
@@ -709,12 +773,58 @@ A screenshot of the current chart is attached. Use this visual information to:
 Note: These VWAP values are computed from the frontend chart and reflect the exact indicators the user sees.
 """
 
+        # Inject visible time range for drawing commands
+        time_range_section = ""
+        if chart_state:
+            vtr = chart_state.get("visible_time_range")
+            if vtr and vtr.get("from") and vtr.get("to"):
+                from datetime import datetime as _dt, timezone as _tz
+                try:
+                    t_from = int(vtr["from"])
+                    t_to = int(vtr["to"])
+                    # Provide both unix timestamps and human-readable times
+                    dt_from = _dt.fromtimestamp(t_from, tz=_tz.utc).strftime('%Y-%m-%d %H:%M')
+                    dt_to = _dt.fromtimestamp(t_to, tz=_tz.utc).strftime('%Y-%m-%d %H:%M')
+                    time_range_section = f"""
+## Chart Visible Time Range
+- From: {t_from} ({dt_from} UTC) | To: {t_to} ({dt_to} UTC)
+- Use these Unix timestamps as reference when drawing boxes (zone with startTime/endTime) or trendlines.
+- Left ~25% of chart: ~{t_from} | Center: ~{(t_from + t_to) // 2} | Right ~75%: ~{t_from + 3 * (t_to - t_from) // 4}
+"""
+                except (ValueError, TypeError):
+                    pass
+
+        # Inject current chart drawings context
+        drawings_section = ""
+        if chart_state:
+            drawings = chart_state.get("drawings", [])
+            if drawings:
+                lines = []
+                for d in drawings:
+                    dtype = d.get("type", "unknown")
+                    src = d.get("source", "unknown")
+                    lbl = d.get("label", "")
+                    if dtype == "hline":
+                        lines.append(f"- {src} hline at ${d.get('price', 0):.2f}{f' ({lbl})' if lbl else ''}")
+                    elif dtype == "trendline":
+                        lines.append(f"- {src} trendline from ${d.get('startPrice', 0):.2f} to ${d.get('endPrice', 0):.2f}{f' ({lbl})' if lbl else ''}")
+                    elif dtype == "zone":
+                        lines.append(f"- {src} zone ${d.get('priceLow', 0):.2f}-${d.get('priceHigh', 0):.2f}{f' ({lbl})' if lbl else ''}")
+                drawings_section = "\n## Current Chart Drawings:\n" + "\n".join(lines) + "\n"
+
+        # Build market environment and trade context sections
+        market_env_section = f"\n{market_env_context}\n" if market_env_context else ""
+        trade_ctx_section = f"\n{trade_ctx_context}\n" if trade_ctx_context else ""
+
         prompt = f"""You are an expert intraday trading assistant with access to real-time market data. You help traders make informed decisions based on technical analysis.
 
 {market_context}
 {dt_section}
+{time_range_section}
+{drawings_section}
 {memory_section}
 {news_section}
+{market_env_section}{trade_ctx_section}
 {visual_context}
 {history_text}
 ## User's Question:
@@ -731,6 +841,9 @@ Note: These VWAP values are computed from the frontend chart and reflect the exa
 8. When critical market catalysts are present above, structure your analysis as: **Catalyst** > **Transmission Path** > **Affected Sectors** > **Market Impact Horizon** > **Key Levels** > **Invalidation Conditions**
 9. If no critical catalysts are present, briefly state "No major market-moving catalyst detected" before answering
 10. Do not offer generic market opinions not tied to a scored catalyst or technical level
+11. Use the Market Environment context to frame your analysis — if risk_mode is "risk_off", bias toward defensive/cautious recommendations; if "risk_on", be more constructive
+12. When Trade Context shows an imminent event (e.g., "CPI in 42m"), warn the trader about positioning risk and suggest reducing size or waiting
+13. Reference active themes when relevant to the symbol being discussed
 
 ## Drawing Capabilities:
 You can draw on the chart! When the user asks you to mark price levels, support, resistance, or draw lines, include a DRAW_COMMAND block with JSON:
@@ -751,7 +864,13 @@ For a single drawing:
 Drawing types:
 - hline: Horizontal line at a price level
 - trendline: Line between two points (requires startTime, startPrice, endTime, endPrice as Unix timestamps)
+- zone: Box/rectangle on chart (requires priceHigh, priceLow). Add startTime, endTime (Unix timestamps) to make a bounded box around a specific area. Without times, spans full width. Great for marking patterns (triangles, W-bottoms, consolidation areas).
 - clear: Remove all drawings
+
+Example bounded box:
+```DRAW_COMMAND
+{{"type": "zone", "priceHigh": 610.50, "priceLow": 607.00, "startTime": 1710072000, "endTime": 1710086400, "color": "#2962FF", "label": "Triangle Pattern"}}
+```
 
 Colors: #26a69a (green/support), #ef5350 (red/resistance), #FFD700 (gold), #2962FF (blue)
 
@@ -760,23 +879,9 @@ IMPORTANT: Always use triple backticks (```) not single backticks.
 Respond naturally and helpfully. If the question is unclear, ask for clarification."""
 
         try:
-            # Use multimodal request if chart screenshot is available
+            response_text = self._generate(prompt, image_base64=chart_screenshot)
             if chart_screenshot:
-                try:
-                    image_bytes = base64.b64decode(chart_screenshot)
-                    image_part = {
-                        "mime_type": "image/png",
-                        "data": image_bytes
-                    }
-                    response = self.model.generate_content([prompt, image_part])
-                    logger.info("Chat response generated with chart screenshot (multimodal)")
-                except Exception as img_error:
-                    logger.warning(f"Multimodal request failed, falling back to text-only: {img_error}")
-                    response = self.model.generate_content(prompt)
-            else:
-                response = self.model.generate_content(prompt)
-
-            response_text = response.text
+                logger.info("Chat response generated with chart screenshot (multimodal)")
             self._log_llm_context('chat_with_context', prompt, response=response_text)
             return response_text
         except Exception as e:
@@ -826,8 +931,7 @@ Specific conditions or events that would negate the current thesis.
 Keep the analysis concise, actionable, and tied to the specific events listed above. No generic commentary."""
 
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text
+            response_text = self._generate(prompt)
             self._log_llm_context('generate_break_impact', prompt, response=response_text)
             return response_text
         except Exception as e:

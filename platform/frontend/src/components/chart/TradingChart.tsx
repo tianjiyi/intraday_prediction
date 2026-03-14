@@ -18,6 +18,7 @@ import {
   computeSessionVwap,
   type OhlcvBar,
 } from '../../utils/chartHelpers'
+import { registerChart, unregisterChart } from '../../utils/chartRegistry'
 import styles from './TradingChart.module.css'
 
 export interface TradingChartHandle {
@@ -93,14 +94,15 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
       const chart = createChart(containerRef.current, buildChartOptions())
       chartRef.current = chart
+      registerChart(chart)
 
       // Candlestick
       csRef.current = chart.addSeries(CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
+        upColor: '#22d1a0',
+        downColor: '#f7525f',
         borderVisible: false,
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
+        wickUpColor: '#22d1a0',
+        wickDownColor: '#f7525f',
       })
 
       // Prediction mean line
@@ -223,6 +225,7 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
       return () => {
         unsub()
+        unregisterChart()
         chart.remove()
         chartRef.current = null
         csRef.current = null

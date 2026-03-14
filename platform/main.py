@@ -684,12 +684,14 @@ class ChatRequest(BaseModel):
 
 class DrawCommand(BaseModel):
     """Request model for drawing commands"""
-    type: str  # 'hline', 'trendline', 'clear', 'remove'
+    type: str  # 'hline', 'trendline', 'zone', 'clear', 'remove'
     price: Optional[float] = None
     startTime: Optional[int] = None
     startPrice: Optional[float] = None
     endTime: Optional[int] = None
     endPrice: Optional[float] = None
+    priceHigh: Optional[float] = None
+    priceLow: Optional[float] = None
     color: Optional[str] = None
     label: Optional[str] = None
     id: Optional[str] = None
@@ -771,6 +773,60 @@ async def chat_endpoint(request: ChatRequest):
             except Exception as e:
                 logger.warning(f"News context build failed (non-fatal): {e}")
 
+        # Build market environment context (landing state -> AI bridge)
+        market_env_context = ""
+        if landing_service:
+            try:
+                pulse = landing_service.get_market_pulse()
+                themes_data = landing_service.get_themes(limit=4)
+
+                lines = ["## Market Environment"]
+                # Risk + Sentiment + VIX line
+                fg = pulse.get('fear_greed')
+                fg_str = ""
+                if fg and fg.get('value') is not None:
+                    fg_str = f" | F&G: {fg['value']}({fg.get('label', '')})"
+                pcr = pulse.get('put_call_ratio')
+                pcr_str = ""
+                if pcr and pcr.get('ratio') is not None:
+                    pcr_str = f" | P/C: {pcr['ratio']:.2f}"
+                lines.append(
+                    f"- Risk: {pulse['risk_mode']} (score {pulse['risk_score']}) | "
+                    f"Sentiment: {pulse['sentiment_score']}/10 | "
+                    f"VIX: {pulse['volatility_level']} ({pulse['volatility_state']}, "
+                    f"{pulse['volatility_change_1d_pct']:+.1f}%){fg_str}{pcr_str}"
+                )
+                lines.append(f"- Breadth: {pulse['change_summary']}")
+
+                # Active themes (top 3)
+                themes = themes_data.get('themes', [])[:3]
+                if themes:
+                    parts = [f"{t['name']}({t['momentum']},{t['sentiment']})" for t in themes]
+                    lines.append(f"- Themes: {'; '.join(parts)}")
+
+                market_env_context = "\n".join(lines)
+            except Exception as e:
+                logger.warning(f"Market env context build failed (non-fatal): {e}")
+
+        # Build trade context summary (regime + VWAP + S/R + event risk)
+        trade_ctx_context = ""
+        if trade_context_service:
+            try:
+                tf_map = {1: '1m', 5: '5m', 15: '15m'}
+                tf_min = prediction.get('timeframe_minutes', 1)
+                tf_str = tf_map.get(tf_min)
+                if tf_str:
+                    tc = trade_context_service.get_trade_context(symbol, tf_str)
+                    if tc.get('state') == 'ok':
+                        trade_ctx_context = (
+                            f"## Intraday Trade Context\n"
+                            f"- {tc['summary']}\n"
+                            f"- Regime: {tc['intraday_regime']} "
+                            f"(confidence: {tc.get('regime_confidence', 'N/A')})"
+                        )
+            except Exception as e:
+                logger.warning(f"Trade context build failed (non-fatal): {e}")
+
         # Get chat response
         response = await llm_service.chat_with_context(
             symbol=symbol,
@@ -781,6 +837,8 @@ async def chat_endpoint(request: ChatRequest):
             memory_context=memory_context,
             news_context=news_context,
             chart_state=request.chart_state,
+            market_env_context=market_env_context,
+            trade_ctx_context=trade_ctx_context,
         )
 
         # Store messages in memory (async, non-blocking)

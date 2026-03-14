@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { useChatStore } from '../stores/chatStore'
 import { useMarketStore } from '../stores/marketStore'
+import { useT } from '../i18n'
 import { AiChatMessage } from './AiChatMessage'
 import styles from './AiChat.module.css'
 
 export function AiChat() {
+  const t = useT()
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -37,7 +39,7 @@ export function AiChat() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <span className={styles.title}>AI Assistant</span>
+        <span className={styles.title}>{t('chat.title')}</span>
         <button className={styles.closeBtn} onClick={() => setOpen(false)} aria-label="Close chat">
           ✕
         </button>
@@ -65,11 +67,11 @@ export function AiChat() {
           className={styles.input}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about markets, news, analysis..."
+          placeholder={t('chat.placeholder')}
           disabled={isLoading}
         />
         <button className={styles.sendBtn} type="submit" disabled={isLoading || !input.trim()}>
-          Send
+          {t('chat.send')}
         </button>
       </form>
     </div>

@@ -55,6 +55,33 @@
   background: rgba(41, 98, 255, 0.1);
 }
 
+.drawingTools {
+  display: flex;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.drawBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+.drawBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.drawBtn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(41, 98, 255, 0.1);
+}
+
 .toggles {
   display: flex;
   gap: 4px;
@@ -90,6 +117,14 @@
   }
   .tfBtn {
     padding: 3px 6px;
+    font-size: 11px;
+  }
+  .drawingTools {
+    gap: 1px;
+    padding-left: 4px;
+  }
+  .drawBtn {
+    padding: 2px 5px;
     font-size: 11px;
   }
   .toggles {

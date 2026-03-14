@@ -1,4 +1,7 @@
 import { useUiStore } from '../../stores/uiStore'
+import { useDrawingStore } from '../../stores/drawingStore'
+import { useT } from '../../i18n'
+import type { DrawingTool } from '../../types/drawing'
 import styles from './ChartToolbar.module.css'
 
 const TIMEFRAMES = [
@@ -8,6 +11,13 @@ const TIMEFRAMES = [
   { label: '30m', value: 30 },
   { label: 'D', value: 1440 },
   { label: 'W', value: 10080 },
+]
+
+const DRAWING_TOOLS: { tool: DrawingTool; label: string; titleKey: string }[] = [
+  { tool: 'cursor', label: '\u2197', titleKey: 'toolbar.select' },
+  { tool: 'hline', label: '\u2500', titleKey: 'toolbar.hline' },
+  { tool: 'trendline', label: '\u2571', titleKey: 'toolbar.trendLine' },
+  { tool: 'zone', label: '\u25AD', titleKey: 'toolbar.zone' },
 ]
 
 interface Props {
@@ -36,11 +46,17 @@ export function ChartToolbar({
     toggleDayTradingMode,
   } = useUiStore()
 
+  const t = useT()
+  const activeTool = useDrawingStore((s) => s.activeTool)
+  const setActiveTool = useDrawingStore((s) => s.setActiveTool)
+  const clearAll = useDrawingStore((s) => s.clearAll)
+  const drawingCount = useDrawingStore((s) => s.drawings.length)
+
   return (
     <div className={styles.toolbar}>
       <div className={styles.left}>
         <span className={styles.symbol}>{symbol}</span>
-        {isStreaming && <span className={styles.live}>LIVE</span>}
+        {isStreaming && <span className={styles.live}>{t('toolbar.live')}</span>}
       </div>
 
       <div className={styles.timeframes}>
@@ -55,18 +71,40 @@ export function ChartToolbar({
         ))}
       </div>
 
+      <div className={styles.drawingTools}>
+        {DRAWING_TOOLS.map(({ tool, label, titleKey }) => (
+          <button
+            key={tool}
+            className={`${styles.drawBtn} ${activeTool === tool ? styles.active : ''}`}
+            onClick={() => setActiveTool(tool)}
+            title={t(titleKey)}
+          >
+            {label}
+          </button>
+        ))}
+        {drawingCount > 0 && (
+          <button
+            className={styles.drawBtn}
+            onClick={clearAll}
+            title={t('toolbar.clearAll')}
+          >
+            &#x2715;
+          </button>
+        )}
+      </div>
+
       <div className={styles.toggles}>
         <button
           className={`${styles.toggle} ${showPredictions ? styles.on : ''}`}
           onClick={togglePredictions}
         >
-          Pred
+          {t('toolbar.pred')}
         </button>
         <button
           className={`${styles.toggle} ${showConfidence ? styles.on : ''}`}
           onClick={toggleConfidence}
         >
-          Conf
+          {t('toolbar.conf')}
         </button>
         <button
           className={`${styles.toggle} ${showSMAs ? styles.on : ''}`}
@@ -84,7 +122,7 @@ export function ChartToolbar({
           className={`${styles.toggle} ${dayTradingMode ? styles.on : ''}`}
           onClick={toggleDayTradingMode}
         >
-          DT
+          {t('toolbar.dt')}
         </button>
       </div>
     </div>

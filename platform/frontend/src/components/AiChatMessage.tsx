@@ -1,3 +1,4 @@
+import Markdown from 'react-markdown'
 import type { ChatMessage } from '../types/chat'
 import styles from './AiChat.module.css'
 
@@ -5,8 +6,14 @@ interface Props {
   message: ChatMessage
 }
 
+/** Strip DRAW_COMMAND blocks from display — they're executed, not shown */
+function stripDrawCommands(text: string): string {
+  return text.replace(/```DRAW_COMMAND[\s\S]*?```/g, '').trim()
+}
+
 export function AiChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
+  const content = isUser ? message.content : stripDrawCommands(message.content)
 
   return (
     <div className={`${styles.message} ${isUser ? styles.user : styles.assistant}`}>
@@ -20,10 +27,13 @@ export function AiChatMessage({ message }: Props) {
             ))}
           </div>
         )}
-        <div
-          className={styles.content}
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-        />
+        <div className={`${styles.content} ${isUser ? '' : styles.markdown}`}>
+          {isUser ? (
+            content
+          ) : (
+            <Markdown>{content}</Markdown>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -46,15 +56,4 @@ function toolIcon(tool: string): string {
 
 function toolLabel(tool: string): string {
   return tool.replace(/_/g, ' ').replace(/^get /, '')
-}
-
-function renderMarkdown(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>')
 }

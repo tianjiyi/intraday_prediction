@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Prediction } from '../../types/market'
 import { formatPrice, formatPercent } from '../../utils/formatters'
+import { useT } from '../../i18n'
 import styles from './StatsPanel.module.css'
 
 interface Props {
@@ -11,12 +12,13 @@ interface Props {
 }
 
 export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Props) {
+  const t = useT()
   const [collapsed, setCollapsed] = useState(false)
 
   if (collapsed) {
     return (
       <button className={styles.expand} onClick={() => setCollapsed(false)}>
-        Stats
+        {t('stats.title')}
       </button>
     )
   }
@@ -38,7 +40,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
       <div className={styles.panelHeader}>
         <span className={styles.panelTitle}>{symbol}</span>
         <div className={styles.headerActions}>
-          {isStreaming && <span className={styles.live}>LIVE</span>}
+          {isStreaming && <span className={styles.live}>{t('toolbar.live')}</span>}
           <button className={styles.collapse} onClick={() => setCollapsed(true)}>
             —
           </button>
@@ -46,14 +48,14 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
       </div>
 
       <section className={styles.section}>
-        <Row label="Current" value={formatPrice(pred?.current_close)} />
-        <Row label="Predicted" value={formatPrice(lastMean)} />
+        <Row label={t('stats.current')} value={formatPrice(pred?.current_close)} />
+        <Row label={t('stats.predicted')} value={formatPrice(lastMean)} />
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionTitle}>Probability</div>
+        <div className={styles.sectionTitle}>{t('stats.probability')}</div>
         <Row
-          label="P(Up 30m)"
+          label={t('stats.pUp30m')}
           value={
             pred?.p_up_30m != null
               ? `${(pred.p_up_30m * 100).toFixed(1)}%`
@@ -78,7 +80,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
           />
         </div>
         <Row
-          label="Exp Return"
+          label={t('stats.expReturn')}
           value={
             pred?.exp_ret_30m != null ? formatPercent(pred.exp_ret_30m) : '--'
           }
@@ -89,7 +91,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionTitle}>Confidence</div>
+        <div className={styles.sectionTitle}>{t('stats.confidence')}</div>
         {(['p90', 'p75', 'p50', 'p25', 'p10'] as const).map((k) => (
           <Row
             key={k}
@@ -100,7 +102,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionTitle}>Indicators</div>
+        <div className={styles.sectionTitle}>{t('stats.indicators')}</div>
         <Row label="VWAP" value={formatPrice(pred?.current_vwap)} />
         <Row label="BB Upper" value={formatPrice(pred?.bollinger_bands?.upper)} />
         <Row label="BB Mid" value={formatPrice(pred?.bollinger_bands?.middle)} />
@@ -109,7 +111,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
 
       {dc && (
         <section className={styles.section}>
-          <div className={styles.sectionTitle}>Daily</div>
+          <div className={styles.sectionTitle}>{t('stats.daily')}</div>
           {dc.daily_sma_5 != null && (
             <Row
               label="SMA 5"
@@ -150,7 +152,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
             <Row label="CCI" value={dc.daily_cci.toFixed(1)} />
           )}
           <Row
-            label="Trend"
+            label={t('stats.trend')}
             value={dc.daily_trend || '--'}
             className={trendClass(dc.daily_trend)}
           />
@@ -159,10 +161,10 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
 
       {dc && (
         <section className={styles.section}>
-          <div className={styles.sectionTitle}>Key Levels</div>
+          <div className={styles.sectionTitle}>{t('stats.keyLevels')}</div>
           {dc.prev_day_high != null && (
             <Row
-              label="Prev High"
+              label={t('stats.prevHigh')}
               value={formatPrice(dc.prev_day_high)}
               className={
                 currentPrice! > dc.prev_day_high
@@ -173,7 +175,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
           )}
           {dc.prev_day_low != null && (
             <Row
-              label="Prev Low"
+              label={t('stats.prevLow')}
               value={formatPrice(dc.prev_day_low)}
               className={
                 currentPrice! < dc.prev_day_low
@@ -184,7 +186,7 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
           )}
           {dc.prev_day_close != null && (
             <Row
-              label="Prev Close"
+              label={t('stats.prevClose')}
               value={formatPrice(dc.prev_day_close)}
               className={
                 currentPrice! > dc.prev_day_close
@@ -194,23 +196,23 @@ export function StatsPanel({ symbol, prediction: pred, isStreaming, width }: Pro
             />
           )}
           {dc.three_day_high != null && (
-            <Row label="3D High" value={formatPrice(dc.three_day_high)} />
+            <Row label={t('stats.3dHigh')} value={formatPrice(dc.three_day_high)} />
           )}
           {dc.three_day_low != null && (
-            <Row label="3D Low" value={formatPrice(dc.three_day_low)} />
+            <Row label={t('stats.3dLow')} value={formatPrice(dc.three_day_low)} />
           )}
         </section>
       )}
 
       <section className={styles.section}>
-        <div className={styles.sectionTitle}>Model</div>
+        <div className={styles.sectionTitle}>{t('stats.model')}</div>
         <Row
-          label="Name"
+          label={t('stats.name')}
           value={pred?.model_name ?? '--'}
           valueStyle={{ fontSize: 10 }}
         />
-        <Row label="Bars" value={String(pred?.data_bars_count ?? '--')} />
-        <Row label="Samples" value={String(pred?.n_samples ?? '--')} />
+        <Row label={t('stats.bars')} value={String(pred?.data_bars_count ?? '--')} />
+        <Row label={t('stats.samples')} value={String(pred?.n_samples ?? '--')} />
       </section>
     </aside>
   )

@@ -1,8 +1,9 @@
 import { useLandingStore } from '../../stores/landingStore'
+import { useT } from '../../i18n'
 import type { TradeContext, SRZone } from '../../types/landing'
 import styles from './TradeContextSnapshot.module.css'
 
-function RegimeBadge({ regime, confidence }: { regime: string; confidence: number }) {
+function RegimeBadge({ regime, confidence, t }: { regime: string; confidence: number; t: (key: string) => string }) {
   const cls =
     regime === 'trend' ? styles.regimeTrend :
     regime === 'volatile' ? styles.regimeVolatile :
@@ -11,23 +12,23 @@ function RegimeBadge({ regime, confidence }: { regime: string; confidence: numbe
 
   return (
     <div className={styles.metricCard}>
-      <span className={styles.metricLabel}>Regime</span>
+      <span className={styles.metricLabel}>{t('trade.regime')}</span>
       <span className={`${styles.regimeBadge} ${cls}`}>{regime.toUpperCase()}</span>
-      <span className={styles.metricSub}>{Math.round(confidence * 100)}% conf</span>
+      <span className={styles.metricSub}>{Math.round(confidence * 100)}{t('trade.conf')}</span>
     </div>
   )
 }
 
-function VwapCard({ vwap }: { vwap: NonNullable<TradeContext['vwap_state']> }) {
+function VwapCard({ vwap, t }: { vwap: NonNullable<TradeContext['vwap_state']>; t: (key: string) => string }) {
   const cls =
     vwap.relation === 'above' ? styles.vwapAbove :
     vwap.relation === 'below' ? styles.vwapBelow :
     styles.vwapCrossing
 
   const sigmaLabel =
-    vwap.sigma_position === 'inside_1sigma' ? 'Inside 1σ' :
-    vwap.sigma_position === 'between_1_2sigma' ? '1-2σ' :
-    'Outside 2σ'
+    vwap.sigma_position === 'inside_1sigma' ? t('trade.inside1s') :
+    vwap.sigma_position === 'between_1_2sigma' ? t('trade.1to2s') :
+    t('trade.outside2s')
 
   return (
     <div className={styles.metricCard}>
@@ -59,12 +60,12 @@ function ZoneRow({ zone, price }: { zone: SRZone; price?: number }) {
   )
 }
 
-function EventRiskCard({ event }: { event: NonNullable<TradeContext['event_risk']> }) {
+function EventRiskCard({ event, t }: { event: NonNullable<TradeContext['event_risk']>; t: (key: string) => string }) {
   if (event.status === 'none') {
     return (
       <div className={styles.metricCard}>
-        <span className={styles.metricLabel}>Event Risk</span>
-        <span className={styles.metricValue}>None</span>
+        <span className={styles.metricLabel}>{t('trade.eventRisk')}</span>
+        <span className={styles.metricValue}>{t('trade.none')}</span>
       </div>
     )
   }
@@ -79,30 +80,31 @@ function EventRiskCard({ event }: { event: NonNullable<TradeContext['event_risk'
 
   return (
     <div className={styles.metricCard}>
-      <span className={styles.metricLabel}>Event Risk</span>
+      <span className={styles.metricLabel}>{t('trade.eventRisk')}</span>
       <span className={`${styles.eventStatus} ${isImminent ? styles.eventImminent : styles.eventUpcoming}`}>
-        {isImminent ? 'IMMINENT' : 'UPCOMING'}
+        {isImminent ? t('trade.imminent') : t('trade.upcoming')}
       </span>
       <span className={styles.eventName}>{event.next_event}</span>
-      <span className={styles.eventCountdown}>in {timeStr}</span>
+      <span className={styles.eventCountdown}>{t('trade.in')}{timeStr}</span>
     </div>
   )
 }
 
 export function TradeContextSnapshot() {
+  const t = useT()
   const tc = useLandingStore((s) => s.tradeContext)
 
   if (!tc || tc.state === 'not_applicable') {
     return (
       <div className={styles.panel}>
         <div className={styles.header}>
-          <span className={styles.title}>Trade Context</span>
+          <span className={styles.title}>{t('trade.title')}</span>
           <span className={styles.symbol}>{tc?.symbol ?? 'QQQ'} / {tc?.timeframe ?? '1m'}</span>
         </div>
         <div className={styles.placeholder}>
           {tc?.state === 'not_applicable'
-            ? 'Trade context applies to minute timeframes (1m/5m/15m) only'
-            : 'Loading trade context...'}
+            ? t('trade.minuteOnly')
+            : t('trade.loading')}
         </div>
       </div>
     )
@@ -112,11 +114,11 @@ export function TradeContextSnapshot() {
     return (
       <div className={styles.panel}>
         <div className={styles.header}>
-          <span className={styles.title}>Trade Context</span>
+          <span className={styles.title}>{t('trade.title')}</span>
           <span className={styles.symbol}>{tc.symbol} / {tc.timeframe}</span>
         </div>
         <div className={styles.placeholder}>
-          {tc.reason ?? 'Trade context unavailable'}
+          {tc.reason ?? t('trade.unavailable')}
         </div>
       </div>
     )
@@ -128,7 +130,7 @@ export function TradeContextSnapshot() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <span className={styles.title}>Trade Context</span>
+        <span className={styles.title}>{t('trade.title')}</span>
         <span className={styles.symbol}>{tc.symbol} / {tc.timeframe}</span>
       </div>
 
@@ -138,15 +140,15 @@ export function TradeContextSnapshot() {
 
       <div className={styles.metricsRow}>
         {tc.intraday_regime && (
-          <RegimeBadge regime={tc.intraday_regime} confidence={tc.regime_confidence ?? 0} />
+          <RegimeBadge regime={tc.intraday_regime} confidence={tc.regime_confidence ?? 0} t={t} />
         )}
-        {tc.vwap_state && <VwapCard vwap={tc.vwap_state} />}
-        {tc.event_risk && <EventRiskCard event={tc.event_risk} />}
+        {tc.vwap_state && <VwapCard vwap={tc.vwap_state} t={t} />}
+        {tc.event_risk && <EventRiskCard event={tc.event_risk} t={t} />}
       </div>
 
       {(supports.length > 0 || resistances.length > 0) && (
         <div className={styles.srSection}>
-          <span className={styles.srLabel}>S/R Zones</span>
+          <span className={styles.srLabel}>{t('trade.srZones')}</span>
           <div className={styles.zoneList}>
             {resistances.map((z, i) => <ZoneRow key={`r${i}`} zone={z} />)}
             {supports.map((z, i) => <ZoneRow key={`s${i}`} zone={z} />)}

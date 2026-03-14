@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useMarketStore } from '../stores/marketStore'
 import { useNewsStore } from '../stores/newsStore'
+import { useDrawingStore } from '../stores/drawingStore'
 import { fetchTrendingSectors } from '../api/news'
 
 const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -115,6 +116,34 @@ function handleMessage(data: Record<string, unknown>) {
     case 'stream_status': {
       const connected = data.connected as boolean
       useMarketStore.getState().setStreaming(connected)
+      break
+    }
+
+    case 'draw_command': {
+      const cmd = data.command as Record<string, unknown>
+      if (!cmd) break
+      const cmdType = cmd.type as string
+      const store = useDrawingStore.getState()
+      if (cmdType === 'clear') {
+        store.clearAll()
+      } else if (cmdType === 'remove') {
+        store.removeDrawing(cmd.id as string)
+      } else {
+        store.addDrawing({
+          id: (cmd.id as string) || `ai-${Date.now()}`,
+          type: cmdType as 'hline' | 'trendline' | 'zone',
+          price: cmd.price as number | undefined,
+          startTime: cmd.startTime as number | undefined,
+          startPrice: cmd.startPrice as number | undefined,
+          endTime: cmd.endTime as number | undefined,
+          endPrice: cmd.endPrice as number | undefined,
+          priceHigh: cmd.priceHigh as number | undefined,
+          priceLow: cmd.priceLow as number | undefined,
+          color: (cmd.color as string) || '#2962FF',
+          label: cmd.label as string | undefined,
+          source: 'ai',
+        })
+      }
       break
     }
 

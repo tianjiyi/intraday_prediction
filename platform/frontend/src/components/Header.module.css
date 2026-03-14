@@ -78,6 +78,22 @@
   box-shadow: 0 0 6px rgba(38, 166, 154, 0.5);
 }
 
+.langToggle {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.langToggle:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
 .chatToggle {
   background: var(--bg-secondary);
   color: var(--text-secondary);
