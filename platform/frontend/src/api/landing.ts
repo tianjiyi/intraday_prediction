@@ -24,8 +24,8 @@ export function fetchThemes(limit = 10, locale = 'en') {
   return apiFetch<ThemesResponse>(`/api/landing/themes?limit=${limit}&locale=${locale}`)
 }
 
-export function fetchCatalystClock(hours = 72) {
-  return apiFetch<CatalystClockResponse>(`/api/landing/catalyst-clock?hours=${hours}`)
+export function fetchCatalystClock(hours = 72, locale = 'en') {
+  return apiFetch<CatalystClockResponse>(`/api/landing/catalyst-clock?hours=${hours}&locale=${locale}`)
 }
 
 export interface ThemeAnalysis {

@@ -1083,7 +1083,7 @@ async def llm_status_endpoint():
 
 
 @app.get("/api/news/feed")
-async def get_news_feed(category: str = "all", limit: int = 50):
+async def get_news_feed(category: str = "all", limit: int = 50, locale: str = "en"):
     """Hybrid news feed: real-time buffer + enriched DB backfill."""
     realtime_items = []
     unread = 0
@@ -1135,9 +1135,13 @@ async def get_news_feed(category: str = "all", limit: int = 50):
     if category and category != "all":
         realtime_items = [i for i in realtime_items if i.get("category") == category]
 
+    final_items = realtime_items[:limit]
+    if locale != "en" and final_items:
+        final_items = await _translate_news(final_items, locale)
+
     return {
-        "items": realtime_items[:limit],
-        "count": len(realtime_items),
+        "items": final_items,
+        "count": len(final_items),
         "unread_count": unread,
         "timestamp": datetime.now().isoformat(),
     }
@@ -1265,81 +1269,194 @@ async def get_themes(limit: int = 10, locale: str = "en"):
     return landing_service.get_themes(limit=limit)
 
 
-_theme_translation_cache: Dict[str, Dict[str, Any]] = {}  # cache: f"{locale}:{name}" -> translated theme
+# ============== Shared Translation Layer ==============
 
-async def _translate_themes(themes: list, locale: str) -> list:
-    """Translate theme names and summaries using Claude."""
-    # Check cache first — use theme ID for stable cache keys
+_translation_cache: Dict[str, Dict[str, str]] = {}  # f"{domain}:{locale}:{id}" -> { field: translated }
+_LOCALE_NAMES = {"zh": "Simplified Chinese", "ja": "Japanese", "ko": "Korean", "es": "Spanish"}
+
+
+def _get_claude_client():
+    """Get or create a shared Claude client for translation."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key)
+
+
+async def _batch_translate(
+    items: list,
+    locale: str,
+    domain: str,
+    fields: list[str],
+    id_field: str,
+    prompt_template: str,
+    max_tokens: int = 4096,
+) -> list:
+    """
+    Generic batch translation for any list of dicts.
+    - items: list of dicts to translate
+    - locale: target locale
+    - domain: cache namespace (e.g. "theme", "catalyst", "news")
+    - fields: list of field names to translate (e.g. ["name", "summary"])
+    - id_field: field to use as stable cache key (e.g. "id" or "headline")
+    - prompt_template: prompt with {items_text} and {lang} placeholders
+    - Returns: items list with translated fields applied
+    """
+    if locale == "en" or not items:
+        return items
+
+    lang = _LOCALE_NAMES.get(locale, locale)
+
+    # Split into cached / uncached
     uncached = []
     result = []
-    for th in themes:
-        cache_key = f"{locale}:{th.get('id', th['name'])}"
-        if cache_key in _theme_translation_cache:
-            cached = dict(th)
-            cached.update(_theme_translation_cache[cache_key])
-            result.append(cached)
+    for item in items:
+        cache_key = f"{domain}:{locale}:{item.get(id_field, '')}"
+        cached = _translation_cache.get(cache_key)
+        if cached:
+            merged = dict(item)
+            merged.update(cached)
+            result.append(merged)
         else:
-            uncached.append(th)
-            result.append(th)
+            uncached.append(item)
+            result.append(item)
 
     if not uncached:
         return result
 
-    # Batch translate uncached themes
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        client = _get_claude_client()
+        if not client:
+            return result
 
-        locale_names = {"zh": "Simplified Chinese", "ja": "Japanese", "ko": "Korean", "es": "Spanish"}
-        lang = locale_names.get(locale, locale)
+        # Build items text for prompt
+        lines = []
+        for i, item in enumerate(uncached):
+            parts = []
+            for f in fields:
+                val = item.get(f, "")
+                if val:
+                    parts.append(f"   {f.upper()}: {val}")
+            lines.append(f"{i+1}.\n" + "\n".join(parts))
+        items_text = "\n".join(lines)
 
-        names_and_summaries = "\n".join(
-            f"{i+1}. NAME: {th['name']}\n   SUMMARY: {th['summary']}"
-            for i, th in enumerate(uncached)
-        )
-
-        prompt = f"""Translate these market theme names and summaries to {lang}. Keep ticker symbols and numbers unchanged.
-
-{names_and_summaries}
-
-Respond ONLY with a JSON array of objects with "name" and "summary" fields, in the same order. No other text."""
+        prompt = prompt_template.replace("{items_text}", items_text).replace("{lang}", lang)
 
         response = await asyncio.to_thread(
             client.messages.create,
             model="claude-sonnet-4-20250514",
-            max_tokens=4096,
+            max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
         if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            text = "\n".join(lines).strip()
+            text_lines = text.split("\n")
+            text_lines = [l for l in text_lines if not l.strip().startswith("```")]
+            text = "\n".join(text_lines).strip()
 
-        translated = json.loads(text)
+        # Parse JSON with fallback extraction
+        try:
+            translated = json.loads(text)
+        except json.JSONDecodeError:
+            # Try to find and parse the JSON array
+            start = text.find("[")
+            end = text.rfind("]")
+            if start >= 0 and end > start:
+                try:
+                    translated = json.loads(text[start:end + 1])
+                except json.JSONDecodeError:
+                    logger.warning(f"[{domain}] JSON parse failed, attempting line-by-line fix")
+                    # Last resort: try fixing common issues (unescaped quotes in values)
+                    import re
+                    fixed = text[start:end + 1]
+                    # Replace smart/curly quotes with straight quotes
+                    fixed = fixed.replace('\u201c', '\\"').replace('\u201d', '\\"')
+                    fixed = fixed.replace('\u2018', "\\'").replace('\u2019', "\\'")
+                    try:
+                        translated = json.loads(fixed)
+                    except json.JSONDecodeError as e2:
+                        logger.warning(f"[{domain}] All JSON parse attempts failed: {e2}")
+                        translated = []
+            else:
+                translated = []
 
         if len(translated) < len(uncached):
-            logger.warning(f"Translation incomplete: got {len(translated)} of {len(uncached)} themes")
+            logger.warning(f"[{domain}] Translation incomplete: got {len(translated)} of {len(uncached)}")
 
-        # Apply translations — match by index into uncached list
+        # Cache translations
         for idx, tr in enumerate(translated):
             if idx >= len(uncached):
                 break
             orig = uncached[idx]
-            cache_key = f"{locale}:{orig.get('id', orig['name'])}"
-            _theme_translation_cache[cache_key] = {"name": tr["name"], "summary": tr["summary"]}
+            cache_key = f"{domain}:{locale}:{orig.get(id_field, '')}"
+            translation = {f: tr[f] for f in fields if f in tr}
+            _translation_cache[cache_key] = translation
 
-        # Rebuild result with translations applied
-        for i, th in enumerate(result):
-            cache_key = f"{locale}:{th.get('id', th['name'])}"
-            if cache_key in _theme_translation_cache:
-                result[i] = dict(th)
-                result[i].update(_theme_translation_cache[cache_key])
+        # Rebuild result with all translations applied
+        for i, item in enumerate(result):
+            cache_key = f"{domain}:{locale}:{item.get(id_field, '')}"
+            cached = _translation_cache.get(cache_key)
+            if cached:
+                result[i] = dict(item)
+                result[i].update(cached)
 
     except Exception as e:
-        logger.warning(f"Theme translation failed: {e}")
+        logger.warning(f"[{domain}] Translation failed: {e}")
 
     return result
+
+
+async def _translate_themes(themes: list, locale: str) -> list:
+    return await _batch_translate(
+        items=themes,
+        locale=locale,
+        domain="theme",
+        fields=["name", "summary"],
+        id_field="id",
+        prompt_template=(
+            "Translate these market theme names and summaries to {lang}. "
+            "Keep ticker symbols and numbers unchanged.\n\n"
+            "{items_text}\n\n"
+            "Respond ONLY with a valid JSON array of objects with \"name\" and \"summary\" fields, in the same order. "
+            "Escape any double quotes inside values with backslash. No other text."
+        ),
+    )
+
+
+async def _translate_catalysts(events: list, locale: str) -> list:
+    return await _batch_translate(
+        items=events,
+        locale=locale,
+        domain="catalyst",
+        fields=["title", "detail"],
+        id_field="id",
+        prompt_template=(
+            "Translate these economic calendar event titles and details to {lang}. "
+            "Keep numbers, percentages, units (K, M, B), dates, and economic abbreviations (CPI, NFP, GDP, FOMC) unchanged.\n\n"
+            "{items_text}\n\n"
+            "Respond ONLY with a valid JSON array of objects with \"title\" and \"detail\" fields, in the same order. "
+            "Escape any double quotes inside values with backslash. No other text."
+        ),
+    )
+
+
+async def _translate_news(items: list, locale: str) -> list:
+    return await _batch_translate(
+        items=items,
+        locale=locale,
+        domain="news",
+        fields=["headline", "summary"],
+        id_field="id",
+        prompt_template=(
+            "Translate these financial news headlines and summaries to {lang}. "
+            "Keep ticker symbols, company names, numbers, and percentages unchanged.\n\n"
+            "{items_text}\n\n"
+            "Respond ONLY with a valid JSON array of objects with \"headline\" and \"summary\" fields, in the same order. "
+            "Escape any double quotes inside values with backslash. No other text."
+        ),
+        max_tokens=8192,
+    )
 
 
 @app.post("/api/landing/themes/refresh")
@@ -1518,11 +1635,15 @@ async def get_macro_tape():
 
 
 @app.get("/api/landing/catalyst-clock")
-async def get_catalyst_clock(hours: int = 72):
+async def get_catalyst_clock(hours: int = 72, locale: str = "en"):
     """Upcoming catalyst events (V1 placeholder)."""
     if not landing_service:
         return JSONResponse({"error": "Landing service not available"}, status_code=503)
-    return landing_service.get_catalyst_clock(hours=hours)
+    result = landing_service.get_catalyst_clock(hours=hours)
+    if locale != "en" and result.get("events"):
+        result = dict(result)
+        result["events"] = await _translate_catalysts(result["events"], locale)
+    return result
 
 
 @app.get("/api/landing/trade-context")

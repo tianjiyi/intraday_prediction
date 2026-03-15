@@ -15,21 +15,42 @@ import styles from './HomePage.module.css'
 
 const REFRESH_INTERVAL = 60_000
 
-function loadLandingData(locale = 'en') {
-  const { setPulse, setMacroTape, setMovers, setThemes, setCatalysts, setTradeContext, setLoading, setError } = useLandingStore.getState()
-  setLoading(true)
-  setError(null)
+function loadLandingData(locale = 'en', setNewsItems?: (items: any[]) => void) {
+  const store = useLandingStore.getState()
+  store.setLoading(true)
+  store.setError(null)
 
-  Promise.all([
-    fetchMarketPulse().then(setPulse).catch(() => {}),
-    fetchMacroTape().then((d) => setMacroTape(d.items)).catch(() => {}),
-    fetchMovers(10).then((d) => setMovers(d.gainers, d.losers)).catch(() => {}),
-    fetchThemes(10, locale).then((d) => setThemes(d.themes)).catch(() => {}),
-    fetchCatalystClock(72).then((d) => setCatalysts(d.events)).catch(() => {}),
-    fetchTradeContext('QQQ', '1m').then(setTradeContext).catch(() => {}),
-  ])
-    .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
-    .finally(() => setLoading(false))
+  // Phase 1: Load all data in English (fast, no translation delay)
+  const fetches: Promise<void>[] = [
+    fetchMarketPulse().then(store.setPulse).catch(() => {}),
+    fetchMacroTape().then((d) => store.setMacroTape(d.items)).catch(() => {}),
+    fetchMovers(10).then((d) => store.setMovers(d.gainers, d.losers)).catch(() => {}),
+    fetchThemes(10, 'en').then((d) => store.setThemes(d.themes)).catch(() => {}),
+    fetchCatalystClock(72, 'en').then((d) => store.setCatalysts(d.events)).catch(() => {}),
+    fetchTradeContext('QQQ', '1m').then(store.setTradeContext).catch(() => {}),
+  ]
+  if (setNewsItems) {
+    fetches.push(fetchNewsFeed('all', 50, 'en').then((d) => setNewsItems(d.items)).catch(() => {}))
+  }
+
+  Promise.all(fetches)
+    .catch((e) => store.setError(e instanceof Error ? e.message : 'Failed to load'))
+    .finally(() => {
+      store.setLoading(false)
+      // Phase 2: Translate in background if non-English
+      if (locale !== 'en') {
+        store.setTranslating(true)
+        const translateFetches: Promise<void>[] = [
+          fetchThemes(10, locale).then((d) => store.setThemes(d.themes)).catch(() => {}),
+          fetchCatalystClock(72, locale).then((d) => store.setCatalysts(d.events)).catch(() => {}),
+        ]
+        if (setNewsItems) {
+          translateFetches.push(fetchNewsFeed('all', 50, locale).then((d) => setNewsItems(d.items)).catch(() => {}))
+        }
+        Promise.all(translateFetches)
+          .finally(() => store.setTranslating(false))
+      }
+    })
 }
 
 export function HomePage() {
@@ -39,13 +60,9 @@ export function HomePage() {
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined)
 
   useEffect(() => {
-    loadLandingData(locale)
+    loadLandingData(locale, setNewsItems)
 
-    fetchNewsFeed('all', 50)
-      .then((data) => setNewsItems(data.items))
-      .catch(console.error)
-
-    intervalRef.current = setInterval(() => loadLandingData(locale), REFRESH_INTERVAL)
+    intervalRef.current = setInterval(() => loadLandingData(locale, setNewsItems), REFRESH_INTERVAL)
     return () => clearInterval(intervalRef.current)
   }, [setNewsItems, locale])
 

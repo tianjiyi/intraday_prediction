@@ -94,6 +94,7 @@ function EventRow({ event, t }: { event: CatalystEvent; t: (key: string) => stri
 export function CatalystClock() {
   const t = useT()
   const catalysts = useLandingStore((s) => s.catalysts)
+  const translating = useLandingStore((s) => s.translating)
   const pastEvents = catalysts.filter((e) => e.status === 'past')
   const upcomingEvents = catalysts.filter((e) => e.status !== 'past')
 
@@ -101,6 +102,7 @@ export function CatalystClock() {
     <div className={styles.panel}>
       <div className={styles.header}>
         <span className={styles.title}>{t('catalyst.title')}</span>
+        {translating && <span className={styles.translatingBadge}>translating...</span>}
         {catalysts.length > 0 && (
           <span className={styles.count}>{catalysts.length}</span>
         )}

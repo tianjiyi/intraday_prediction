@@ -3,10 +3,11 @@ import type { NewsFeedResponse, SectorTrend, BreakImpactResponse } from '../type
 
 export async function fetchNewsFeed(
   category = 'all',
-  limit = 50
+  limit = 50,
+  locale = 'en'
 ): Promise<NewsFeedResponse> {
   return apiFetch<NewsFeedResponse>(
-    `/api/news/feed?category=${category}&limit=${limit}`
+    `/api/news/feed?category=${category}&limit=${limit}&locale=${locale}`
   )
 }
 

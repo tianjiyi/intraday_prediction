@@ -49,7 +49,30 @@ function isPersistentTheme(th: Theme): boolean {
   return !!th.lifecycle_stage
 }
 
-// Simple markdown-like rendering: **bold**, bullet points, headings
+// Inline bold: replace **text** with <strong>text</strong>
+function renderInlineBold(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  let remaining = text
+  let key = 0
+  while (remaining) {
+    const idx = remaining.indexOf('**')
+    if (idx === -1) {
+      parts.push(remaining)
+      break
+    }
+    const end = remaining.indexOf('**', idx + 2)
+    if (end === -1) {
+      parts.push(remaining)
+      break
+    }
+    if (idx > 0) parts.push(remaining.slice(0, idx))
+    parts.push(<strong key={key++}>{remaining.slice(idx + 2, end)}</strong>)
+    remaining = remaining.slice(end + 2)
+  }
+  return parts
+}
+
+// Markdown rendering: #/##/### headings, **bold**, bullets, numbered lists
 function renderAnalysis(text: string) {
   const lines = text.split('\n')
   const elements: React.ReactNode[] = []
@@ -62,17 +85,34 @@ function renderAnalysis(text: string) {
       continue
     }
 
-    // Headings
-    if (line.startsWith('## ')) {
+    // Headings: #, ##, ###
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const content = headingMatch[2].replace(/\*\*/g, '')
       elements.push(
-        <div key={i} className={styles.analysisHeading}>
-          {line.replace(/^##\s+/, '').replace(/\*\*/g, '')}
+        <div
+          key={i}
+          className={level === 1 ? styles.analysisHeadingH1 : level === 2 ? styles.analysisHeading : styles.analysisHeadingH3}
+        >
+          {content}
         </div>
       )
       continue
     }
 
-    // Bold sections like **Title**: content
+    // Numbered list or bullet (with sub-bullets via leading spaces)
+    if (/^\s*[\d]+[.)]\s/.test(line) || /^\s*- /.test(line)) {
+      const indent = line.match(/^(\s*)/)?.[1].length || 0
+      elements.push(
+        <div key={i} className={styles.analysisBullet} style={indent > 2 ? { paddingLeft: 12 + indent * 4 } : undefined}>
+          {renderInlineBold(line.trimStart())}
+        </div>
+      )
+      continue
+    }
+
+    // Bold line like **Title:** content
     const boldMatch = line.match(/^\*\*(.+?)\*\*(.*)/)
     if (boldMatch) {
       elements.push(
@@ -83,19 +123,10 @@ function renderAnalysis(text: string) {
       continue
     }
 
-    // Numbered list or bullet
-    if (/^[\d]+[.)]\s/.test(line) || line.startsWith('- ')) {
-      elements.push(
-        <div key={i} className={styles.analysisBullet}>
-          {line.replace(/\*\*(.+?)\*\*/g, '$1')}
-        </div>
-      )
-      continue
-    }
-
+    // Regular line with possible inline bold
     elements.push(
       <div key={i} className={styles.analysisLine}>
-        {line.replace(/\*\*(.+?)\*\*/g, '$1')}
+        {renderInlineBold(line)}
       </div>
     )
   }
@@ -107,6 +138,7 @@ export function HotThemes() {
   const t = useT()
   const themes = useLandingStore((s) => s.themes)
   const loading = useLandingStore((s) => s.loading)
+  const translating = useLandingStore((s) => s.translating)
   const locale = useUiStore((s) => s.locale)
   const [refreshing, setRefreshing] = useState(false)
   const [modalTheme, setModalTheme] = useState<Theme | null>(null)
@@ -180,6 +212,7 @@ export function HotThemes() {
     <div className={styles.panel}>
       <div className={styles.titleRow}>
         <div className={styles.title}>{t('themes.title')}</div>
+        {translating && <span className={styles.translatingBadge}>translating...</span>}
         {hasPersistent && (
           <button
             className={styles.refreshBtn}

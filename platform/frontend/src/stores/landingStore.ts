@@ -10,6 +10,7 @@ interface LandingState {
   catalysts: CatalystEvent[]
   tradeContext: TradeContext | null
   loading: boolean
+  translating: boolean
   error: string | null
 
   setPulse: (p: MarketPulse) => void
@@ -19,6 +20,7 @@ interface LandingState {
   setCatalysts: (c: CatalystEvent[]) => void
   setTradeContext: (tc: TradeContext) => void
   setLoading: (v: boolean) => void
+  setTranslating: (v: boolean) => void
   setError: (e: string | null) => void
 }
 
@@ -31,6 +33,7 @@ export const useLandingStore = create<LandingState>((set) => ({
   catalysts: [],
   tradeContext: null,
   loading: false,
+  translating: false,
   error: null,
 
   setPulse: (pulse) => set({ pulse }),
@@ -40,5 +43,6 @@ export const useLandingStore = create<LandingState>((set) => ({
   setCatalysts: (catalysts) => set({ catalysts }),
   setTradeContext: (tradeContext) => set({ tradeContext }),
   setLoading: (loading) => set({ loading }),
+  setTranslating: (translating) => set({ translating }),
   setError: (error) => set({ error }),
 }))

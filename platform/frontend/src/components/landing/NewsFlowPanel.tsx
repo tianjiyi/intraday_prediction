@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useNewsStore } from '../../stores/newsStore'
+import { useLandingStore } from '../../stores/landingStore'
 import { useT } from '../../i18n'
 import { formatTimeAgo } from '../../utils/formatters'
 import type { NewsItem } from '../../types/news'
@@ -129,6 +130,7 @@ export function NewsFlowPanel() {
   const t = useT()
   const navigate = useNavigate()
   const items = useNewsStore((s) => s.items)
+  const translating = useLandingStore((s) => s.translating)
   const activeCategory = useNewsStore((s) => s.activeCategory)
   const criticalOnly = useNewsStore((s) => s.criticalOnly)
   const setCategory = useNewsStore((s) => s.setCategory)
@@ -149,7 +151,10 @@ export function NewsFlowPanel() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <div className={styles.title}>{t('news.title')}</div>
+        <div className={styles.title}>
+          {t('news.title')}
+          {translating && <span className={styles.translatingBadge}> translating...</span>}
+        </div>
         <div className={styles.filterBar}>
           {FILTERS.map((f) => (
             <button
