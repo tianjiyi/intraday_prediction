@@ -496,7 +496,7 @@ Phase C:
 - [ ] Implement `/api/landing/macro-tape` for VIX/Gold/Oil/SPY/QQQ/IWM
 - [ ] Integrate existing news endpoints into News Flow panel
 - [ ] Add click-through from movers/themes to chart
-- [ ] Add AI context bridge from landing state
+- [x] Add AI context bridge from landing state (market pulse + themes + trade context injected into chat prompts)
 - [ ] Validate responsive behavior and loading/error states
 - [x] Implement `CatalystCalendarService` with Benzinga economics calendar (`platform/services/catalyst_calendar_service.py`)
 - [x] Add catalyst source/status fields to `/api/landing/catalyst-clock`
@@ -505,4 +505,47 @@ Phase C:
 - [x] Add `BENZINGA_API_KEY` env var and `landing.catalyst.*` config block
 - [x] Implement `/api/landing/trade-context` endpoint contract (`platform/services/trade_context_service.py`)
 - [x] Wire Trade Context panel to live data (regime + VWAP state + S/R zones)
-- [ ] Add Trade Context summary string to AI context bridge
+- [x] Add Trade Context summary string to AI context bridge
+
+## 13. V1.1 UI Polish Checklist
+
+### 13.1 Market Pulse strip
+- Increase visual hierarchy for `Risk`, `Sentiment`, `Volatility` values (weight + contrast).
+- Replace low-value empty top-right content with useful status (`updated_at` or data-health text).
+- Acceptance:
+  - Key pulse values are readable at first glance.
+  - No empty placeholder text remains in hero strip.
+
+### 13.2 Catalyst Clock clarity
+- Add impact badge per row: `HIGH`, `MED`, `LOW`.
+- Sort rows by `impact DESC`, then `event time ASC`.
+- Acceptance:
+  - Highest-impact nearest events always appear first.
+  - Impact is identifiable without opening detail.
+
+### 13.3 Movers actionability
+- Add compact `RVOL` beside each mover/loser item.
+- Keep table alignment stable at desktop widths.
+- Acceptance:
+  - User can scan `% move` and participation (`RVOL`) in one pass.
+
+### 13.4 News Flow readability
+- Keep selected row visually pinned/highlighted across refresh.
+- Add source-color legend for `Benzinga`, `X`, `Polymarket`.
+- Acceptance:
+  - Selection state remains obvious during feed updates.
+  - Source identity is recognizable by color + label.
+
+### 13.5 Trade Context interactions
+- Color-code regime and VWAP badges by state.
+- Make S/R entries clickable to open chart on the same symbol/timeframe.
+- Acceptance:
+  - Context badges are visually distinguishable.
+  - S/R click-through works reliably.
+
+### 13.6 Mobile behavior
+- Collapse AI side panel by default on small screens.
+- Expose AI panel through a floating toggle.
+- Preserve dashboard readability without horizontal squeeze.
+- Acceptance:
+  - Landing page remains usable on mobile without panel overlap.

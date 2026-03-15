@@ -66,12 +66,23 @@ export interface Mover {
 }
 
 export interface Theme {
+  // Persistent theme intelligence fields
+  id?: string
   name: string
-  momentum: 'rising' | 'falling' | 'stable'
-  sentiment: 'bullish' | 'bearish' | 'neutral'
-  impact_score: number
-  top_headline: string
-  item_count: number
+  summary?: string
+  lifecycle_stage?: 'emerging' | 'hot' | 'cooling' | 'faded'
+  confidence?: number
+  related_tickers?: string[]
+  related_sectors?: string[]
+  news_count?: number
+  first_seen?: string
+  last_updated?: string
+  // Legacy ephemeral fields (fallback)
+  momentum?: 'rising' | 'falling' | 'stable'
+  sentiment?: 'bullish' | 'bearish' | 'neutral'
+  impact_score?: number
+  top_headline?: string
+  item_count?: number
 }
 
 export interface CatalystEvent {

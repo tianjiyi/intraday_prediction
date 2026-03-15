@@ -40,6 +40,9 @@ from services.agent_memory_service import AgentMemoryService
 from services.polymarket_service import PolymarketService
 from services.news_monitor_service import NewsMonitorService
 from services.landing_service import LandingService
+from services.news_enrichment_service import NewsEnrichmentService
+from services.news_backfill_service import NewsBackfillService
+from services.theme_analysis_service import ThemeAnalysisService
 from services.catalyst_calendar_service import CatalystCalendarService
 from services.trade_context_service import TradeContextService
 from services.fear_greed_service import FearGreedService
@@ -128,6 +131,9 @@ polymarket_service: Optional[PolymarketService] = None
 news_monitor: Optional[NewsMonitorService] = None
 landing_service: Optional[LandingService] = None
 trade_context_service: Optional[TradeContextService] = None
+news_enrichment_service: Optional[NewsEnrichmentService] = None
+news_backfill_service: Optional[NewsBackfillService] = None
+theme_analysis_service: Optional[ThemeAnalysisService] = None
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -344,6 +350,66 @@ def initialize_landing_service():
         trade_context_service = None
 
 
+async def initialize_theme_intelligence():
+    """Initialize the theme intelligence pipeline (enrichment + analysis)."""
+    global news_enrichment_service, news_backfill_service, theme_analysis_service
+    try:
+        # Need DB session factory from agent memory service
+        if not agent_memory or not agent_memory.is_available():
+            logger.info("Theme intelligence skipped: agent memory service not available")
+            return
+
+        session_factory = agent_memory._session_factory
+        embedding_service = agent_memory._embedding_service if hasattr(agent_memory, '_embedding_service') else None
+
+        # Try to get embedding service from agent memory internals
+        if embedding_service is None and hasattr(agent_memory, 'embedding_service'):
+            embedding_service = agent_memory.embedding_service
+
+        # Fallback: create standalone embedding service
+        if embedding_service is None:
+            from services.embedding_service import EmbeddingService
+            embedding_service = EmbeddingService(app_config)
+
+        news_enrichment_service = NewsEnrichmentService(
+            config=app_config,
+            session_factory=session_factory,
+            embedding_service=embedding_service,
+        )
+        await news_enrichment_service.load_recent_keys()
+
+        # Get impact service from news monitor if available
+        impact_service = None
+        if news_monitor and hasattr(news_monitor, 'impact_service'):
+            impact_service = news_monitor.impact_service
+
+        news_backfill_service = NewsBackfillService(
+            config=app_config,
+            enrichment_service=news_enrichment_service,
+            news_service=news_service,
+            impact_service=impact_service,
+        )
+
+        theme_analysis_service = ThemeAnalysisService(
+            config=app_config,
+            session_factory=session_factory,
+            enrichment_service=news_enrichment_service,
+            llm_service=llm_service,
+        )
+        theme_analysis_service.start_background()
+
+        # Wire enrichment callback into news monitor
+        if news_monitor and news_enrichment_service:
+            news_monitor._enrichment_callback = news_enrichment_service.enrich_scored_items
+
+        logger.info("Theme intelligence pipeline initialized")
+    except Exception as e:
+        logger.warning(f"Theme intelligence init failed (non-fatal): {e}")
+        news_enrichment_service = None
+        news_backfill_service = None
+        theme_analysis_service = None
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
@@ -355,6 +421,7 @@ async def startup_event():
     await initialize_memory_service()
     await initialize_news_monitor()
     initialize_landing_service()
+    await initialize_theme_intelligence()
 
     logger.info("FastAPI server startup complete")
 
@@ -1020,14 +1087,61 @@ async def llm_status_endpoint():
 
 @app.get("/api/news/feed")
 async def get_news_feed(category: str = "all", limit: int = 50):
-    """Get scored news feed (for initial page load / polling)."""
-    if not news_monitor:
-        return JSONResponse({"error": "News monitor not running"}, status_code=503)
-    scored_items = news_monitor.get_scored_buffer(category=category, limit=limit)
+    """Hybrid news feed: real-time buffer + enriched DB backfill."""
+    realtime_items = []
+    unread = 0
+    if news_monitor:
+        scored_items = news_monitor.get_scored_buffer(category=category, limit=limit)
+        realtime_items = [item.to_dict() for item in scored_items]
+        unread = news_monitor.get_unread_count()
+
+    # Backfill from enriched_news DB if we have fewer than requested
+    if len(realtime_items) < limit and news_enrichment_service:
+        try:
+            db_items = await news_enrichment_service.get_enriched_news(
+                days=30, min_score=40.0, limit=limit * 2
+            )
+            # Dedupe by headline against real-time items
+            seen_headlines = {item.get("headline", "").lower().strip() for item in realtime_items}
+            for db_item in db_items:
+                if len(realtime_items) >= limit:
+                    break
+                headline = db_item.get("headline", "")
+                if headline.lower().strip() in seen_headlines:
+                    continue
+                seen_headlines.add(headline.lower().strip())
+                # Convert enriched_news shape to match ScoredNewsItem.to_dict()
+                realtime_items.append({
+                    "id": db_item.get("id", ""),
+                    "headline": headline,
+                    "summary": db_item.get("summary") or "",
+                    "source": db_item.get("source", "alpaca"),
+                    "created_at": db_item.get("timestamp", ""),
+                    "url": db_item.get("url") or "",
+                    "symbols": db_item.get("tickers") or [],
+                    "images": [],
+                    "impact_score": db_item.get("impact_score", 0),
+                    "impact_tier": (
+                        "critical" if db_item.get("impact_score", 0) >= 75
+                        else "high" if db_item.get("impact_score", 0) >= 60
+                        else "medium"
+                    ),
+                    "sector_tags": db_item.get("sectors") or [],
+                    "category": db_item.get("category") or "company_specific",
+                    "sentiment": db_item.get("sentiment", "neutral"),
+                    "from_db": True,
+                })
+        except Exception as e:
+            logger.debug(f"DB news backfill failed: {e}")
+
+    # Filter by category if needed (DB items may not match)
+    if category and category != "all":
+        realtime_items = [i for i in realtime_items if i.get("category") == category]
+
     return {
-        "items": [item.to_dict() for item in scored_items],
-        "count": len(scored_items),
-        "unread_count": news_monitor.get_unread_count(),
+        "items": realtime_items[:limit],
+        "count": len(realtime_items),
+        "unread_count": unread,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -1135,11 +1249,120 @@ async def get_movers(limit: int = 10):
 
 
 @app.get("/api/landing/themes")
-async def get_themes(limit: int = 6):
-    """Hot market themes derived from sector trends."""
+async def get_themes(limit: int = 10, locale: str = "en"):
+    """Persistent market themes from AI analysis, with fallback to sector trends."""
+    # Try theme intelligence first
+    if theme_analysis_service:
+        try:
+            themes = await theme_analysis_service.get_active_themes(limit=limit)
+            if themes:
+                if locale != "en":
+                    themes = await _translate_themes(themes, locale)
+                return {"themes": themes, "source": "theme_intelligence"}
+        except Exception as e:
+            logger.warning(f"Theme intelligence query failed, falling back: {e}")
+
+    # Fallback to ephemeral sector trends
     if not landing_service:
         return JSONResponse({"error": "Landing service not available"}, status_code=503)
     return landing_service.get_themes(limit=limit)
+
+
+_theme_translation_cache: Dict[str, Dict[str, Any]] = {}  # cache: f"{locale}:{name}" -> translated theme
+
+async def _translate_themes(themes: list, locale: str) -> list:
+    """Translate theme names and summaries using Claude."""
+    # Check cache first
+    uncached = []
+    result = []
+    for th in themes:
+        cache_key = f"{locale}:{th['name']}"
+        if cache_key in _theme_translation_cache:
+            cached = dict(th)
+            cached.update(_theme_translation_cache[cache_key])
+            result.append(cached)
+        else:
+            uncached.append(th)
+            result.append(th)
+
+    if not uncached:
+        return result
+
+    # Batch translate uncached themes
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+
+        locale_names = {"zh": "Simplified Chinese", "ja": "Japanese", "ko": "Korean", "es": "Spanish"}
+        lang = locale_names.get(locale, locale)
+
+        names_and_summaries = "\n".join(
+            f"{i+1}. NAME: {th['name']}\n   SUMMARY: {th['summary']}"
+            for i, th in enumerate(uncached)
+        )
+
+        prompt = f"""Translate these market theme names and summaries to {lang}. Keep ticker symbols and numbers unchanged.
+
+{names_and_summaries}
+
+Respond ONLY with a JSON array of objects with "name" and "summary" fields, in the same order. No other text."""
+
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+
+        translated = json.loads(text)
+
+        # Apply translations and cache
+        uncached_idx = 0
+        for i, th in enumerate(result):
+            cache_key = f"{locale}:{th['name']}"
+            if cache_key not in _theme_translation_cache and uncached_idx < len(translated):
+                tr = translated[uncached_idx]
+                _theme_translation_cache[cache_key] = {"name": tr["name"], "summary": tr["summary"]}
+                result[i] = dict(th)
+                result[i]["name"] = tr["name"]
+                result[i]["summary"] = tr["summary"]
+                uncached_idx += 1
+
+    except Exception as e:
+        logger.warning(f"Theme translation failed: {e}")
+
+    return result
+
+
+@app.post("/api/landing/themes/refresh")
+async def refresh_themes():
+    """Trigger on-demand theme analysis (runs in background)."""
+    if not theme_analysis_service:
+        return JSONResponse({"error": "Theme analysis service not available"}, status_code=503)
+    asyncio.create_task(theme_analysis_service.run_analysis())
+    return {"status": "started", "message": "Theme analysis running in background"}
+
+
+@app.post("/api/admin/backfill")
+async def trigger_backfill(start_date: str = None, end_date: str = None):
+    """Trigger historical news backfill from Benzinga."""
+    if not news_backfill_service:
+        return JSONResponse({"error": "Backfill service not available"}, status_code=503)
+    result = await news_backfill_service.backfill(start_date=start_date, end_date=end_date)
+    return result
+
+
+@app.get("/api/admin/backfill/progress")
+async def backfill_progress():
+    """Check backfill progress."""
+    if not news_backfill_service:
+        return {"status": "unavailable"}
+    return news_backfill_service.progress
 
 
 @app.get("/api/landing/macro-tape")

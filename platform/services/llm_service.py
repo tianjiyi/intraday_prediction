@@ -74,7 +74,7 @@ class LLMService:
         if self.provider == 'ollama':
             try:
                 base_url = self.base_url or 'http://localhost:11434'
-                self.client = httpx.Client(base_url=base_url, timeout=120.0)
+                self.client = httpx.Client(base_url=base_url, timeout=300.0)
                 # Test connection
                 resp = self.client.get('/api/tags')
                 resp.raise_for_status()

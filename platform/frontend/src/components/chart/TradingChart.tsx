@@ -110,21 +110,24 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
         color: '#2962FF',
         lineWidth: 3,
         title: 'Pred',
+        priceLineVisible: false,
       })
 
       // Confidence bands
       const bandDefs = [
-        { key: 'p90', color: 'rgba(41,98,255,0.10)' },
-        { key: 'p75', color: 'rgba(41,98,255,0.20)' },
-        { key: 'p25', color: 'rgba(41,98,255,0.20)' },
-        { key: 'p10', color: 'rgba(41,98,255,0.10)' },
+        { key: 'p90', color: '#5C6BC0', width: 1 as const, style: LineStyle.Dotted },
+        { key: 'p75', color: '#7986CB', width: 1 as const, style: LineStyle.Dashed },
+        { key: 'p25', color: '#7986CB', width: 1 as const, style: LineStyle.Dashed },
+        { key: 'p10', color: '#5C6BC0', width: 1 as const, style: LineStyle.Dotted },
       ]
-      for (const { key, color } of bandDefs) {
+      for (const { key, color, width, style } of bandDefs) {
         confRefs.current[key] = chart.addSeries(LineSeries, {
           color,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
+          lineWidth: width,
+          lineStyle: style,
           title: key.toUpperCase(),
+          priceLineVisible: false,
+          lastValueVisible: false,
         })
       }
 
@@ -145,17 +148,17 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
 
       // Day Trading session VWAP + sigma bands
       dtVwapRef.current = chart.addSeries(LineSeries, {
-        color: '#FF9800',
+        color: '#FFB300',
         lineWidth: 2,
         title: 'VWAP',
         priceLineVisible: false,
         lastValueVisible: false,
       })
       const dtBandDefs = [
-        { key: 'upper1', color: '#42A5F5', style: LineStyle.Dashed },
-        { key: 'lower1', color: '#42A5F5', style: LineStyle.Dashed },
-        { key: 'upper2', color: '#90CAF9', style: LineStyle.Dotted },
-        { key: 'lower2', color: '#90CAF9', style: LineStyle.Dotted },
+        { key: 'upper1', color: '#E08A3C', style: LineStyle.Dashed },
+        { key: 'lower1', color: '#E08A3C', style: LineStyle.Dashed },
+        { key: 'upper2', color: '#C0653A', style: LineStyle.Dotted },
+        { key: 'lower2', color: '#C0653A', style: LineStyle.Dotted },
       ] as const
       for (const { key, color, style } of dtBandDefs) {
         dtBandRefs.current[key] = chart.addSeries(LineSeries, {

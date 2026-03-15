@@ -80,6 +80,9 @@ class NewsMonitorService:
         self.impact_service = NewsImpactService(config)
         self.sector_trend_service = SectorTrendService(config)
 
+        # Optional enrichment callback for theme intelligence
+        self._enrichment_callback: Optional[Callable] = None
+
         # Polling intervals (seconds)
         self.alpaca_interval = self.monitor_config.get('alpaca_interval', 300)
         self.twitter_interval = self.monitor_config.get('twitter_interval', 300)
@@ -362,6 +365,13 @@ class NewsMonitorService:
         if scored_items:
             self._scored_buffer = scored_items + self._scored_buffer
             self._scored_buffer = self._scored_buffer[:self._scored_buffer_max]
+
+            # Enrich high-impact items for theme intelligence
+            if self._enrichment_callback:
+                try:
+                    await self._enrichment_callback(scored_items)
+                except Exception as e:
+                    logger.warning(f"News enrichment callback failed: {e}")
 
         # Filter raw items to only those that survived scoring dedupe
         scored_ids = {s.id for s in scored_items} if scored_items else set()

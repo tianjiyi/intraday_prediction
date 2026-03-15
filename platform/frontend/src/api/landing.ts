@@ -20,8 +20,8 @@ export function fetchMovers(limit = 10) {
   return apiFetch<MoversResponse>(`/api/landing/movers?limit=${limit}`)
 }
 
-export function fetchThemes(limit = 6) {
-  return apiFetch<ThemesResponse>(`/api/landing/themes?limit=${limit}`)
+export function fetchThemes(limit = 10, locale = 'en') {
+  return apiFetch<ThemesResponse>(`/api/landing/themes?limit=${limit}&locale=${locale}`)
 }
 
 export function fetchCatalystClock(hours = 72) {

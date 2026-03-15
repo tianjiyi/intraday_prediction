@@ -5,8 +5,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 200px;
-  max-height: 600px;
+  height: 520px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .header {
@@ -57,6 +58,22 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.feed::-webkit-scrollbar {
+  width: 5px;
+}
+.feed::-webkit-scrollbar-track {
+  background: transparent;
+}
+.feed::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.feed::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 /* --- Item row --- */
@@ -64,6 +81,8 @@
 .itemWrapper {
   border-radius: 4px;
   overflow: hidden;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .item {
@@ -74,6 +93,7 @@
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.15s;
+  min-width: 0;
 }
 
 .item:hover {
@@ -98,9 +118,13 @@
 }
 
 .itemHeadline {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.3;
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .itemMeta {

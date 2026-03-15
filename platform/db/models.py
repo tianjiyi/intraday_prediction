@@ -8,6 +8,9 @@ Tables:
   - user_preferences: User settings (risk, watchlist, notifications)
   - chat_messages:    Persistent chat history
   - agent_memories:   Vector store for RAG (pgvector)
+  - enriched_news:    High-impact news with embeddings for theme analysis
+  - themes:           Persistent market themes (AI-identified)
+  - theme_history:    Theme lifecycle snapshots over time
 """
 
 import uuid
@@ -213,3 +216,101 @@ class AgentMemory(Base):
 
     def __repr__(self):
         return f"<AgentMemory {self.memory_type} imp={self.importance_score} '{self.content[:30]}...'>"
+
+
+# ============================================================
+# Tier C: Theme Intelligence
+# ============================================================
+
+class EnrichedNews(Base):
+    __tablename__ = "enriched_news"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    headline: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding = mapped_column(Vector(384), nullable=True)
+    sentiment: Mapped[str] = mapped_column(String(20), default="neutral")
+    sectors = mapped_column(ARRAY(String), default=list)
+    tickers = mapped_column(ARRAY(String), default=list)
+    impact_score: Mapped[float] = mapped_column(Numeric(6, 2), default=0.0)
+    source: Mapped[str] = mapped_column(String(30), default="alpaca")
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    __table_args__ = (
+        Index("idx_enriched_news_time", timestamp.desc()),
+        Index("idx_enriched_news_impact", impact_score.desc()),
+        Index("idx_enriched_news_source", "source"),
+    )
+
+    def __repr__(self):
+        return f"<EnrichedNews {self.source} score={self.impact_score} '{self.headline[:40]}...'>"
+
+
+class Theme(Base):
+    __tablename__ = "themes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    lifecycle_stage: Mapped[str] = mapped_column(
+        String(20), default="emerging"  # emerging, hot, cooling, faded
+    )
+    confidence: Mapped[float] = mapped_column(Numeric(3, 2), default=0.50)
+    related_tickers = mapped_column(ARRAY(String), default=list)
+    related_sectors = mapped_column(ARRAY(String), default=list)
+    news_count: Mapped[int] = mapped_column(Integer, default=0)
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+    history: Mapped[list["ThemeHistory"]] = relationship(back_populates="theme")
+
+    __table_args__ = (
+        Index("idx_themes_stage", "lifecycle_stage"),
+        Index("idx_themes_updated", last_updated.desc()),
+    )
+
+    def __repr__(self):
+        return f"<Theme '{self.name}' stage={self.lifecycle_stage} conf={self.confidence}>"
+
+
+class ThemeHistory(Base):
+    __tablename__ = "theme_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    theme_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("themes.id", ondelete="CASCADE"), nullable=False
+    )
+    snapshot_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    lifecycle_stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(3, 2), default=0.50)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    news_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    theme: Mapped[Theme] = relationship(back_populates="history")
+
+    __table_args__ = (
+        Index("idx_theme_history_theme_time", "theme_id", snapshot_at.desc()),
+    )
+
+    def __repr__(self):
+        return f"<ThemeHistory theme={str(self.theme_id)[:8]} stage={self.lifecycle_stage}>"
