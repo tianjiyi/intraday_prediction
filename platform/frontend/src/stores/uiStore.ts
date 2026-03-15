@@ -7,6 +7,7 @@ export interface UiState {
   showConfidence: boolean
   showSMAs: boolean
   showRSI: boolean
+  showSignals: boolean
   dayTradingMode: boolean
   locale: Locale
 
@@ -14,6 +15,7 @@ export interface UiState {
   toggleConfidence: () => void
   toggleSMAs: () => void
   toggleRSI: () => void
+  toggleSignals: () => void
   toggleDayTradingMode: () => void
   setLocale: (locale: Locale) => void
 }
@@ -31,6 +33,7 @@ export const useUiStore = create<UiState>((set) => ({
   showConfidence: true,
   showSMAs: true,
   showRSI: true,
+  showSignals: true,
   dayTradingMode: true,
   locale: loadLocale(),
 
@@ -38,6 +41,7 @@ export const useUiStore = create<UiState>((set) => ({
   toggleConfidence: () => set((s) => ({ showConfidence: !s.showConfidence })),
   toggleSMAs: () => set((s) => ({ showSMAs: !s.showSMAs })),
   toggleRSI: () => set((s) => ({ showRSI: !s.showRSI })),
+  toggleSignals: () => set((s) => ({ showSignals: !s.showSignals })),
   toggleDayTradingMode: () => set((s) => ({ dayTradingMode: !s.dayTradingMode })),
   setLocale: (locale) => {
     try { localStorage.setItem('locale', locale) } catch { /* ignore */ }

@@ -38,11 +38,13 @@ export function ChartToolbar({
     showConfidence,
     showSMAs,
     showRSI,
+    showSignals,
     dayTradingMode,
     togglePredictions,
     toggleConfidence,
     toggleSMAs,
     toggleRSI,
+    toggleSignals,
     toggleDayTradingMode,
   } = useUiStore()
 
@@ -117,6 +119,12 @@ export function ChartToolbar({
           onClick={toggleRSI}
         >
           RSI
+        </button>
+        <button
+          className={`${styles.toggle} ${showSignals ? styles.on : ''}`}
+          onClick={toggleSignals}
+        >
+          Signals
         </button>
         <button
           className={`${styles.toggle} ${dayTradingMode ? styles.on : ''}`}

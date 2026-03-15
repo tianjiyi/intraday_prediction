@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { InitialDataResponse } from '../types/market'
+import type { InitialDataResponse, Signal } from '../types/market'
 
 export async function fetchInitialData(
   symbol: string,
@@ -23,6 +23,15 @@ export async function startStream(symbol: string, timeframe: number) {
 
 export async function stopStream() {
   return apiFetch('/api/stop_stream', { method: 'POST' })
+}
+
+export async function fetchSignals(
+  symbol: string,
+  timeframe: number
+): Promise<Signal[]> {
+  return apiFetch<Signal[]>(
+    `/api/signals?symbol=${symbol}&timeframe=${timeframe}`
+  )
 }
 
 export async function fetchHealth() {

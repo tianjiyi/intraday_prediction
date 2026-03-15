@@ -5,7 +5,9 @@ import {
   startStream,
   stopStream,
   generatePrediction,
+  fetchSignals,
 } from '../api/market'
+import { useSignalStore } from '../stores/signalStore'
 import { parseHistoricalBars } from '../utils/chartHelpers'
 
 const PREDICTION_REFRESH_EVERY = 5
@@ -41,6 +43,13 @@ export function useChartData(symbol: string, timeframe: number) {
               }
             })
             .catch(console.error)
+
+          // Fetch historical signals in background
+          fetchSignals(symbol, timeframe)
+            .then((sigs) => {
+              if (!cancelled) useSignalStore.getState().setSignals(sigs)
+            })
+            .catch(console.error)
         }
       } catch (err) {
         console.error('useChartData load error:', err)
@@ -54,6 +63,7 @@ export function useChartData(symbol: string, timeframe: number) {
     store.setPrediction(null)
     store.setHistoricalData([])
     store.setLoading(true)  // blocks updateBar/addBar until setHistoricalData clears it
+    useSignalStore.getState().clearSignals()
 
     load()
 

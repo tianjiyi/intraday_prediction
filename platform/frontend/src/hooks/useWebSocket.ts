@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useMarketStore } from '../stores/marketStore'
 import { useNewsStore } from '../stores/newsStore'
 import { useDrawingStore } from '../stores/drawingStore'
+import { useSignalStore } from '../stores/signalStore'
 import { fetchTrendingSectors } from '../api/news'
 
 const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -116,6 +117,23 @@ function handleMessage(data: Record<string, unknown>) {
     case 'stream_status': {
       const connected = data.connected as boolean
       useMarketStore.getState().setStreaming(connected)
+      break
+    }
+
+    case 'signal_event': {
+      const sig = data as Record<string, unknown>
+      useSignalStore.getState().addSignal({
+        time: sig.time as number,
+        type: (sig.type as 'entry' | 'exit') || 'entry',
+        signal: sig.signal as string,
+        direction: sig.direction as 'long' | 'short',
+        price: sig.price as number,
+        stop: sig.stop as number,
+        target1: sig.target1 as number,
+        target2: sig.target2 as number,
+        pnl: sig.pnl as number | undefined,
+        exitReason: sig.exitReason as string | undefined,
+      })
       break
     }
 

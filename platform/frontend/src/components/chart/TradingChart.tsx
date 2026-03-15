@@ -4,10 +4,13 @@ import {
   CandlestickSeries,
   LineSeries,
   LineStyle,
+  createSeriesMarkers,
 } from 'lightweight-charts'
-import type { IChartApi, ISeriesApi, SeriesType } from 'lightweight-charts'
+import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi, SeriesType, Time } from 'lightweight-charts'
 import type { Candle, Prediction } from '../../types/market'
 import { useMarketStore } from '../../stores/marketStore'
+import { useSignalStore } from '../../stores/signalStore'
+import { useUiStore } from '../../stores/uiStore'
 import {
   buildChartOptions,
   aggregateCandles,
@@ -60,6 +63,9 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
     const confRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
     const smaRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
 
+    // Signal markers plugin
+    const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+
     // Day Trading VWAP + band series
     const dtVwapRef = useRef<ISeriesApi<'Line'> | null>(null)
     const dtBandRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
@@ -80,6 +86,7 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       vwap?: number
       bbUpper?: number
       bbLower?: number
+      signal?: { type: string; name: string; direction: string; stop?: number; target1?: number; target2?: number; pnl?: number }
     } | null>(null)
 
     // Expose chart to parent for VolumeChart time-scale sync
@@ -104,6 +111,9 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
         wickUpColor: '#22d1a0',
         wickDownColor: '#f7525f',
       })
+
+      // Signal markers plugin (attached to candlestick series)
+      markersRef.current = createSeriesMarkers(csRef.current, [])
 
       // Prediction mean line
       predRef.current = chart.addSeries(LineSeries, {
@@ -187,6 +197,11 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
             const v = param.seriesData?.get(s as ISeriesApi<SeriesType>) as { value?: number } | undefined
             return v?.value
           }
+          // Look up signal for this bar's time (prefer entry, fall back to exit)
+          const barTime = param.time as number
+          const sigs = useSignalStore.getState().signals
+          const sig = sigs.find((s) => s.time === barTime && s.type === 'entry')
+            || sigs.find((s) => s.time === barTime && s.type === 'exit')
           setOverlayBar({
             open: d.open, high: d.high, low: d.low, close: d.close,
             sma5: getVal(smaRefs.current['sma5']),
@@ -195,6 +210,15 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
             vwap: getVal(dtVwapRef.current),
             bbUpper: getVal(dtBandRefs.current['upper1']),
             bbLower: getVal(dtBandRefs.current['lower1']),
+            signal: sig ? {
+              type: sig.type,
+              name: sig.signal.replace(/_/g, ' '),
+              direction: sig.direction,
+              stop: sig.stop,
+              target1: sig.target1,
+              target2: sig.target2,
+              pnl: sig.pnl,
+            } : undefined,
           })
         } else {
           setOverlayBar(null)
@@ -235,6 +259,8 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
         predRef.current = null
         confRefs.current = {}
         smaRefs.current = {}
+        markersRef.current?.detach()
+        markersRef.current = null
         dtVwapRef.current = null
         dtBandRefs.current = {}
         aggBarRef.current = null
@@ -391,6 +417,45 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
       )
     }, [dayTradingMode, timeframe])
 
+    // EFFECT: Signal markers (entry/exit arrows on candles)
+    const signals = useSignalStore((s) => s.signals)
+    const showSignals = useUiStore((s) => s.showSignals)
+
+    useEffect(() => {
+      const mp = markersRef.current
+      if (!mp) return
+
+      if (!showSignals || signals.length === 0) {
+        mp.setMarkers([])
+        return
+      }
+
+      const markers = signals.map((sig) => {
+        if (sig.type === 'exit') {
+          // Exit markers: purple arrow down above bar
+          return {
+            time: sig.time as unknown as Time,
+            position: 'aboveBar' as const,
+            color: '#AB47BC',
+            shape: 'arrowDown' as const,
+            size: 1,
+          }
+        }
+        // Entry markers: blue arrow up below bar
+        return {
+          time: sig.time as unknown as Time,
+          position: 'belowBar' as const,
+          color: '#2962FF',
+          shape: 'arrowUp' as const,
+          size: 1,
+        }
+      })
+
+      // LWC requires markers sorted by time ascending
+      markers.sort((a, b) => (a.time as number) - (b.time as number))
+      mp.setMarkers(markers)
+    }, [signals, showSignals])
+
     return (
       <div className={styles.wrapper}>
         <div ref={containerRef} className={styles.chart} />
@@ -443,6 +508,32 @@ export const TradingChart = forwardRef<TradingChartHandle, Props>(
               <span className={styles.indicatorItem} style={{ color: '#FFC107' }}>
                 <span className={styles.ohlcLabel}>BB</span>
                 {overlayBar.bbLower.toFixed(2)}–{overlayBar.bbUpper.toFixed(2)}
+              </span>
+            )}
+            {overlayBar.signal && overlayBar.signal.type === 'entry' && (
+              <span
+                className={styles.indicatorItem}
+                style={{ color: '#2962FF' }}
+              >
+                <span className={styles.ohlcLabel}>
+                  {overlayBar.signal.direction === 'long' ? 'BUY' : 'SELL'}
+                </span>
+                {overlayBar.signal.name}
+                {overlayBar.signal.stop != null && ` S:${overlayBar.signal.stop.toFixed(2)}`}
+                {overlayBar.signal.target1 != null && ` T1:${overlayBar.signal.target1.toFixed(2)}`}
+                {overlayBar.signal.target2 != null && ` T2:${overlayBar.signal.target2.toFixed(2)}`}
+              </span>
+            )}
+            {overlayBar.signal && overlayBar.signal.type === 'exit' && (
+              <span
+                className={styles.indicatorItem}
+                style={{ color: (overlayBar.signal.pnl ?? 0) >= 0 ? '#22d1a0' : '#f7525f' }}
+              >
+                <span className={styles.ohlcLabel}>EXIT</span>
+                {overlayBar.signal.name}
+                {overlayBar.signal.pnl != null && (
+                  <>{' '}P&L: ${overlayBar.signal.pnl.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</>
+                )}
               </span>
             )}
           </div>

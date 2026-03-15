@@ -62,6 +62,19 @@ export interface DayTradingChartState {
   vwap: DayTradingVwap | null
 }
 
+export interface Signal {
+  time: number
+  type: 'entry' | 'exit'
+  signal: string
+  direction: 'long' | 'short'
+  price: number
+  stop?: number
+  target1?: number
+  target2?: number
+  pnl?: number
+  exitReason?: string
+}
+
 export interface HistoricalBar {
   timestamp: string
   open: number

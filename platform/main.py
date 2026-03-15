@@ -46,6 +46,10 @@ from services.theme_analysis_service import ThemeAnalysisService
 from services.catalyst_calendar_service import CatalystCalendarService
 from services.trade_context_service import TradeContextService
 from services.fear_greed_service import FearGreedService
+from services.signal_service import (
+    compute_signals_historical,
+    process_bar as signal_process_bar,
+)
 
 # Load config once at module level - shared by all services
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -271,9 +275,23 @@ async def initialize_websocket_manager():
     """Initialize WebSocket manager for Alpaca streaming"""
     global websocket_manager
     try:
-        # Create callback for FastAPI WebSocket broadcasting
+        # Create callback for FastAPI WebSocket broadcasting + signal detection
         async def websocket_callback(message):
             await manager.broadcast(message)
+            # Check for trading signals on completed bars
+            try:
+                msg = json.loads(message) if isinstance(message, str) else message
+                if msg.get("type") == "bar_complete" and websocket_manager:
+                    tf_str = websocket_manager.current_timeframe  # e.g. "1Min"
+                    sym = websocket_manager.current_symbol
+                    if tf_str and sym:
+                        signal = signal_process_bar(msg, sym, tf_str)
+                        if signal:
+                            await manager.broadcast(json.dumps({
+                                "type": "signal_event", **signal
+                            }))
+            except Exception as e:
+                logger.debug(f"Signal processing error: {e}")
         # Capture the FastAPI event loop so the stream thread can safely emit
         loop = asyncio.get_running_loop()
         websocket_manager = AlpacaWebSocketManager(
@@ -506,6 +524,30 @@ async def get_initial_data(symbol: Optional[str] = None, timeframe: Optional[int
     except Exception as e:
         logger.error(f"Error getting initial data: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/signals")
+async def get_signals(symbol: Optional[str] = None, timeframe: Optional[int] = None):
+    """Get DayX trading signals for the loaded historical data"""
+    try:
+        if not prediction_service:
+            await initialize_prediction_service()
+            if not prediction_service:
+                return JSONResponse({"error": "Prediction service not available"}, status_code=503)
+
+        # Map frontend timeframe (minutes) to DayX format
+        tf_map = {1: "1Min", 3: "3Min", 5: "5Min"}
+        tf_str = tf_map.get(timeframe)
+        if not tf_str:
+            return []  # Unsupported timeframe — return empty
+
+        sym = symbol or prediction_service.symbol
+        bars = prediction_service.get_historical_data()
+        signals = compute_signals_historical(bars, sym, tf_str)
+        return signals
+    except Exception as e:
+        logger.error(f"Error computing signals: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/api/latest_prediction")
 async def get_latest_prediction():
