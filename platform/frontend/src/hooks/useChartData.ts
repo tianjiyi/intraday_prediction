@@ -21,15 +21,27 @@ export function useChartData(symbol: string, timeframe: number) {
     async function load() {
       try {
         await stopStream().catch(() => {})
+
+        // Load historical bars first — chart renders immediately
         const data = await fetchInitialData(symbol, timeframe)
         if (cancelled) return
         const candles = parseHistoricalBars(data.historical)
         useMarketStore.getState().setHistoricalData(candles)
         prevLenRef.current = candles.length
-        if (data.prediction) {
-          useMarketStore.getState().setPrediction(data.prediction)
-        }
+
+        // Start streaming
         await startStream(symbol, timeframe)
+
+        // Fetch prediction in background — doesn't block chart display
+        if (!cancelled) {
+          generatePrediction()
+            .then((pred) => {
+              if (!cancelled && pred.prediction) {
+                useMarketStore.getState().setPrediction(pred.prediction)
+              }
+            })
+            .catch(console.error)
+        }
       } catch (err) {
         console.error('useChartData load error:', err)
       }

@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLandingStore } from '../../stores/landingStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n'
+import { fetchThemeAnalysis } from '../../api/landing'
+import type { ThemeAnalysis } from '../../api/landing'
 import type { Theme } from '../../types/landing'
 import styles from './HotThemes.module.css'
 
@@ -32,18 +34,73 @@ const SENTIMENT_COLORS: Record<string, string> = {
   neutral: 'var(--text-muted)',
 }
 
-function timeAgo(isoStr: string | undefined): string {
+function formatDate(isoStr: string | undefined): string {
   if (!isoStr) return ''
-  const diff = Date.now() - new Date(isoStr).getTime()
-  const days = Math.floor(diff / 86400000)
-  if (days < 1) return 'today'
-  if (days < 30) return `${days}d ago`
-  const months = Math.floor(days / 30)
-  return `${months}mo ago`
+  const d = new Date(isoStr)
+  const now = new Date()
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  if (d.getFullYear() !== now.getFullYear()) {
+    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+  }
+  return `${months[d.getMonth()]} ${d.getDate()}`
 }
 
 function isPersistentTheme(th: Theme): boolean {
   return !!th.lifecycle_stage
+}
+
+// Simple markdown-like rendering: **bold**, bullet points, headings
+function renderAnalysis(text: string) {
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    if (!line.trim()) {
+      elements.push(<div key={i} style={{ height: 6 }} />)
+      continue
+    }
+
+    // Headings
+    if (line.startsWith('## ')) {
+      elements.push(
+        <div key={i} className={styles.analysisHeading}>
+          {line.replace(/^##\s+/, '').replace(/\*\*/g, '')}
+        </div>
+      )
+      continue
+    }
+
+    // Bold sections like **Title**: content
+    const boldMatch = line.match(/^\*\*(.+?)\*\*(.*)/)
+    if (boldMatch) {
+      elements.push(
+        <div key={i} className={styles.analysisLine}>
+          <strong>{boldMatch[1]}</strong>{boldMatch[2]}
+        </div>
+      )
+      continue
+    }
+
+    // Numbered list or bullet
+    if (/^[\d]+[.)]\s/.test(line) || line.startsWith('- ')) {
+      elements.push(
+        <div key={i} className={styles.analysisBullet}>
+          {line.replace(/\*\*(.+?)\*\*/g, '$1')}
+        </div>
+      )
+      continue
+    }
+
+    elements.push(
+      <div key={i} className={styles.analysisLine}>
+        {line.replace(/\*\*(.+?)\*\*/g, '$1')}
+      </div>
+    )
+  }
+
+  return elements
 }
 
 export function HotThemes() {
@@ -52,12 +109,28 @@ export function HotThemes() {
   const loading = useLandingStore((s) => s.loading)
   const locale = useUiStore((s) => s.locale)
   const [refreshing, setRefreshing] = useState(false)
+  const [modalTheme, setModalTheme] = useState<Theme | null>(null)
+  const [analysisCache, setAnalysisCache] = useState<Record<string, ThemeAnalysis>>({})
+  const [analysisLoading, setAnalysisLoading] = useState<string | null>(null)
+
+  const closeModal = useCallback(() => {
+    setModalTheme(null)
+  }, [])
+
+  // Close on Escape
+  useEffect(() => {
+    if (!modalTheme) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [modalTheme, closeModal])
 
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
       await fetch('/api/landing/themes/refresh', { method: 'POST' })
-      // Reload themes with locale
       const res = await fetch(`/api/landing/themes?limit=10&locale=${locale}`)
       const data = await res.json()
       if (data.themes) {
@@ -67,9 +140,41 @@ export function HotThemes() {
     setRefreshing(false)
   }
 
-  if (loading && themes.length === 0) return <div className={styles.skeleton} />
+  const handleThemeClick = async (theme: Theme) => {
+    const themeId = theme.id || theme.name
+    setModalTheme(theme)
+
+    // Check cache
+    const cached = analysisCache[themeId]
+    if (cached && cached.cached_until > Date.now() / 1000) {
+      return
+    }
+
+    // Fetch analysis
+    setAnalysisLoading(themeId)
+    try {
+      const data = await fetchThemeAnalysis(themeId, locale)
+      setAnalysisCache((prev) => ({ ...prev, [themeId]: data }))
+    } catch (e) {
+      console.error('Failed to fetch theme analysis:', e)
+    }
+    setAnalysisLoading(null)
+  }
+
+  if (loading && themes.length === 0) return (
+    <div className={styles.panel}>
+      <div className={styles.titleRow}>
+        <div className={styles.title}>{t('themes.title')}</div>
+      </div>
+      <div className={styles.panelLoading}>
+        <span className={styles.spinner} />
+        <span>Analyzing market themes...</span>
+      </div>
+    </div>
+  )
 
   const hasPersistent = themes.some(isPersistentTheme)
+  const modalKey = modalTheme ? (modalTheme.id || modalTheme.name) : ''
 
   return (
     <div className={styles.panel}>
@@ -90,25 +195,88 @@ export function HotThemes() {
         <div className={styles.empty}>{t('themes.empty')}</div>
       ) : (
         <div className={styles.grid}>
-          {themes.map((th) =>
-            isPersistentTheme(th) ? (
-              <PersistentCard key={th.name} theme={th} />
+          {themes.map((th) => {
+            const themeKey = th.id || th.name
+            return isPersistentTheme(th) ? (
+              <PersistentCard
+                key={themeKey}
+                theme={th}
+                expanded={false}
+                onClick={() => handleThemeClick(th)}
+              />
             ) : (
               <LegacyCard key={th.name} theme={th} t={t} />
             )
-          )}
+          })}
+        </div>
+      )}
+
+      {/* Modal overlay */}
+      {modalTheme && (
+        <div className={styles.modalOverlay} onClick={closeModal}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div className={styles.modalHeaderLeft}>
+                <span
+                  className={styles.lifecycleBadge}
+                  style={{ background: LIFECYCLE_COLORS[modalTheme.lifecycle_stage || 'emerging'] }}
+                >
+                  {LIFECYCLE_LABELS[modalTheme.lifecycle_stage || 'emerging']}
+                </span>
+                <span className={styles.modalTitle}>{modalTheme.name}</span>
+                {modalTheme.confidence != null && (
+                  <span className={styles.modalConfidence}>
+                    {Math.round(modalTheme.confidence * 100)}%
+                  </span>
+                )}
+              </div>
+              <button className={styles.modalClose} onClick={closeModal}>✕</button>
+            </div>
+
+            {modalTheme.summary && (
+              <div className={styles.modalSummary}>{modalTheme.summary}</div>
+            )}
+
+            {modalTheme.related_tickers && modalTheme.related_tickers.length > 0 && (
+              <div className={styles.modalTickers}>
+                {modalTheme.related_tickers.map((ticker) => (
+                  <span key={ticker} className={styles.tickerChip}>{ticker}</span>
+                ))}
+              </div>
+            )}
+
+            <div className={styles.modalDivider} />
+
+            <div className={styles.modalBody}>
+              {analysisLoading === modalKey ? (
+                <div className={styles.analysisLoading}>
+                  <span className={styles.spinner} />
+                  Generating deep analysis...
+                </div>
+              ) : analysisCache[modalKey] ? (
+                <div className={styles.analysisContent}>
+                  {renderAnalysis(analysisCache[modalKey].analysis)}
+                  <div className={styles.analysisMeta}>
+                    {analysisCache[modalKey].related_news_count} related articles analyzed
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.analysisLoading}>Loading...</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-function PersistentCard({ theme: th }: { theme: Theme }) {
+function PersistentCard({ theme: th, expanded, onClick }: { theme: Theme; expanded: boolean; onClick: () => void }) {
   const stage = th.lifecycle_stage || 'emerging'
   const color = LIFECYCLE_COLORS[stage] || LIFECYCLE_COLORS.emerging
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card} ${expanded ? styles.cardExpanded : ''}`} onClick={onClick}>
       <div className={styles.cardHeader}>
         <span
           className={styles.lifecycleBadge}
@@ -117,6 +285,7 @@ function PersistentCard({ theme: th }: { theme: Theme }) {
           {LIFECYCLE_LABELS[stage] || stage}
         </span>
         <span className={styles.themeName}>{th.name}</span>
+        <span className={styles.expandIcon}>{expanded ? '▾' : '▸'}</span>
       </div>
       {th.summary && (
         <div className={styles.summary} title={th.summary}>
@@ -132,7 +301,7 @@ function PersistentCard({ theme: th }: { theme: Theme }) {
       )}
       <div className={styles.meta}>
         {th.first_seen && (
-          <span>Since {timeAgo(th.first_seen)}</span>
+          <span>Since {formatDate(th.first_seen)}</span>
         )}
         {th.confidence != null && (
           <span className={styles.confidence}>

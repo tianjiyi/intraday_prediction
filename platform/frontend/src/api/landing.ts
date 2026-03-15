@@ -28,6 +28,21 @@ export function fetchCatalystClock(hours = 72) {
   return apiFetch<CatalystClockResponse>(`/api/landing/catalyst-clock?hours=${hours}`)
 }
 
+export interface ThemeAnalysis {
+  theme_name: string
+  lifecycle_stage: string
+  analysis: string
+  related_tickers: string[]
+  related_news_count: number
+  generated_at: number
+  cached_until: number
+  locale: string
+}
+
+export function fetchThemeAnalysis(themeId: string, locale = 'en') {
+  return apiFetch<ThemeAnalysis>(`/api/landing/themes/${encodeURIComponent(themeId)}/analysis?locale=${locale}`)
+}
+
 export function fetchTradeContext(symbol = 'QQQ', timeframe = '1m') {
   return apiFetch<TradeContext>(`/api/landing/trade-context?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
 }

@@ -495,15 +495,12 @@ async def get_initial_data(symbol: Optional[str] = None, timeframe: Optional[int
         if symbol or timeframe:
             prediction_service.update_settings(symbol=symbol, timeframe_minutes=timeframe)
         
-        # Get historical data
+        # Get historical data only — prediction is fetched separately for faster chart load
         historical_data = prediction_service.get_historical_data()
-        
-        # Get latest prediction
-        prediction = prediction_service.get_latest_prediction()
-        
+
         return {
             "historical": historical_data,
-            "prediction": prediction,
+            "prediction": None,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
@@ -1272,11 +1269,11 @@ _theme_translation_cache: Dict[str, Dict[str, Any]] = {}  # cache: f"{locale}:{n
 
 async def _translate_themes(themes: list, locale: str) -> list:
     """Translate theme names and summaries using Claude."""
-    # Check cache first
+    # Check cache first — use theme ID for stable cache keys
     uncached = []
     result = []
     for th in themes:
-        cache_key = f"{locale}:{th['name']}"
+        cache_key = f"{locale}:{th.get('id', th['name'])}"
         if cache_key in _theme_translation_cache:
             cached = dict(th)
             cached.update(_theme_translation_cache[cache_key])
@@ -1310,7 +1307,7 @@ Respond ONLY with a JSON array of objects with "name" and "summary" fields, in t
         response = await asyncio.to_thread(
             client.messages.create,
             model="claude-sonnet-4-20250514",
-            max_tokens=2048,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
@@ -1321,17 +1318,23 @@ Respond ONLY with a JSON array of objects with "name" and "summary" fields, in t
 
         translated = json.loads(text)
 
-        # Apply translations and cache
-        uncached_idx = 0
+        if len(translated) < len(uncached):
+            logger.warning(f"Translation incomplete: got {len(translated)} of {len(uncached)} themes")
+
+        # Apply translations — match by index into uncached list
+        for idx, tr in enumerate(translated):
+            if idx >= len(uncached):
+                break
+            orig = uncached[idx]
+            cache_key = f"{locale}:{orig.get('id', orig['name'])}"
+            _theme_translation_cache[cache_key] = {"name": tr["name"], "summary": tr["summary"]}
+
+        # Rebuild result with translations applied
         for i, th in enumerate(result):
-            cache_key = f"{locale}:{th['name']}"
-            if cache_key not in _theme_translation_cache and uncached_idx < len(translated):
-                tr = translated[uncached_idx]
-                _theme_translation_cache[cache_key] = {"name": tr["name"], "summary": tr["summary"]}
+            cache_key = f"{locale}:{th.get('id', th['name'])}"
+            if cache_key in _theme_translation_cache:
                 result[i] = dict(th)
-                result[i]["name"] = tr["name"]
-                result[i]["summary"] = tr["summary"]
-                uncached_idx += 1
+                result[i].update(_theme_translation_cache[cache_key])
 
     except Exception as e:
         logger.warning(f"Theme translation failed: {e}")
@@ -1346,6 +1349,147 @@ async def refresh_themes():
         return JSONResponse({"error": "Theme analysis service not available"}, status_code=503)
     asyncio.create_task(theme_analysis_service.run_analysis())
     return {"status": "started", "message": "Theme analysis running in background"}
+
+
+# Theme deep analysis cache: { theme_name: { "analysis": ..., "generated_at": ..., "locale": ... } }
+_theme_analysis_cache: Dict[str, Dict] = {}
+_THEME_ANALYSIS_TTL = 7200  # 2 hours
+
+
+@app.get("/api/landing/themes/{theme_id}/analysis")
+async def get_theme_analysis(theme_id: str, locale: str = "en"):
+    """Generate AI deep analysis for a specific theme. Cached for 2 hours."""
+    import time as _time
+
+    cache_key = f"{theme_id}:{locale}"
+
+    # Check cache
+    cached = _theme_analysis_cache.get(cache_key)
+    if cached and (_time.time() - cached["generated_at"]) < _THEME_ANALYSIS_TTL:
+        return cached
+
+    # Find the theme in DB
+    if not theme_analysis_service:
+        return JSONResponse({"error": "Theme analysis not available"}, status_code=503)
+
+    # Get theme data
+    from sqlalchemy import select
+    theme_data = None
+    try:
+        from db.models import Theme as ThemeModel
+        async with theme_analysis_service.session_factory() as session:
+            stmt = select(ThemeModel).where(ThemeModel.id == theme_id)
+            result = await session.execute(stmt)
+            theme = result.scalar_one_or_none()
+            if theme:
+                theme_data = {
+                    "name": theme.name,
+                    "summary": theme.summary,
+                    "lifecycle_stage": theme.lifecycle_stage,
+                    "related_tickers": theme.related_tickers or [],
+                    "related_sectors": theme.related_sectors or [],
+                    "confidence": float(theme.confidence) if theme.confidence else 0,
+                    "first_seen": theme.first_seen.isoformat() if theme.first_seen else None,
+                    "news_count": theme.news_count or 0,
+                }
+    except Exception as e:
+        logger.warning(f"Failed to load theme data: {e}")
+
+    if not theme_data:
+        return JSONResponse({"error": f"Theme '{theme_id}' not found"}, status_code=404)
+
+    # Get related news headlines from enriched_news
+    related_news = []
+    if news_enrichment_service:
+        try:
+            db_items = await news_enrichment_service.get_enriched_news(days=30, min_score=40.0, limit=200)
+            tickers_set = set(t.upper() for t in theme_data["related_tickers"])
+            sectors_set = set(s.lower() for s in theme_data["related_sectors"])
+            theme_words = set(theme_data["name"].lower().split())
+
+            for item in db_items:
+                item_tickers = set(t.upper() for t in (item.get("tickers") or []))
+                item_sectors = set(s.lower() for s in (item.get("sectors") or []))
+                headline_words = set(item.get("headline", "").lower().split())
+
+                if (item_tickers & tickers_set) or (item_sectors & sectors_set) or (theme_words & headline_words):
+                    related_news.append({
+                        "headline": item["headline"],
+                        "summary": (item.get("summary") or "")[:200],
+                        "sentiment": item.get("sentiment", "neutral"),
+                        "timestamp": item.get("timestamp", ""),
+                        "tickers": item.get("tickers", []),
+                    })
+                if len(related_news) >= 15:
+                    break
+        except Exception as e:
+            logger.warning(f"Failed to load related news: {e}")
+
+    # Build prompt and call Claude for deep analysis
+    news_text = ""
+    if related_news:
+        news_lines = []
+        for n in related_news:
+            news_lines.append(f"- [{n['sentiment']}] {n['headline']} ({', '.join(n['tickers'][:3])})")
+        news_text = "\n".join(news_lines)
+
+    lang_instruction = ""
+    if locale != "en":
+        lang_map = {"zh": "Chinese (Simplified)", "ja": "Japanese", "ko": "Korean", "es": "Spanish"}
+        lang = lang_map.get(locale, locale)
+        lang_instruction = f"\n\nIMPORTANT: Write your entire response in {lang}."
+
+    prompt = f"""Analyze this market theme in depth for a trader:
+
+**Theme**: {theme_data['name']}
+**Stage**: {theme_data['lifecycle_stage']} (confidence: {theme_data['confidence']:.0%})
+**Summary**: {theme_data['summary']}
+**Related Tickers**: {', '.join(theme_data['related_tickers'][:10])}
+**Related Sectors**: {', '.join(theme_data['related_sectors'])}
+**First Detected**: {theme_data.get('first_seen', 'N/A')}
+**Related News Count**: {theme_data['news_count']}
+
+Recent related headlines:
+{news_text if news_text else '(no recent news available)'}
+
+Provide a structured analysis with these sections:
+1. **Theme Overview** — What is driving this theme? Key catalysts and narrative (2-3 sentences)
+2. **Short-Term Outlook (1-2 weeks)** — What could happen next? Key events to watch, expected price action
+3. **Long-Term Outlook (1-6 months)** — How might this theme evolve? Bull and bear scenarios
+4. **Beneficiary Stocks** — Top 5-8 stocks that benefit most, with brief reasoning for each
+5. **Risk Stocks** — 3-5 stocks most negatively impacted by this theme
+6. **Key Levels & Triggers** — What would accelerate or invalidate this theme?
+7. **Trading Ideas** — 2-3 specific actionable trade ideas based on this theme
+
+Be specific with ticker symbols, price levels where possible, and concrete catalysts.{lang_instruction}"""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        analysis_text = response.content[0].text
+
+        result = {
+            "theme_name": theme_data["name"],
+            "lifecycle_stage": theme_data["lifecycle_stage"],
+            "analysis": analysis_text,
+            "related_tickers": theme_data["related_tickers"],
+            "related_news_count": len(related_news),
+            "generated_at": _time.time(),
+            "locale": locale,
+            "cached_until": _time.time() + _THEME_ANALYSIS_TTL,
+        }
+        _theme_analysis_cache[cache_key] = result
+        return result
+
+    except Exception as e:
+        logger.error(f"Theme analysis generation failed: {e}")
+        return JSONResponse({"error": f"Analysis generation failed: {str(e)}"}, status_code=500)
 
 
 @app.post("/api/admin/backfill")

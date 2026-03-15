@@ -19,8 +19,10 @@ export function ChartPage() {
 
   // Clear stale data synchronously during render when symbol changes,
   // BEFORE the new TradingChart (keyed by symbol) mounts with old data.
+  // Also clears on initial mount if store has data from a previous symbol.
   const prevSymbolRef = useRef(upperSymbol)
-  if (prevSymbolRef.current !== upperSymbol) {
+  const storeSymbol = useMarketStore.getState().symbol
+  if (prevSymbolRef.current !== upperSymbol || (storeSymbol && storeSymbol !== upperSymbol)) {
     prevSymbolRef.current = upperSymbol
     const store = useMarketStore.getState()
     store.setHistoricalData([])

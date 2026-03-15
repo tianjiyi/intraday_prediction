@@ -171,6 +171,11 @@ class ThemeAnalysisService:
             # Top headlines by impact score
             items_sorted = sorted(items, key=lambda x: -x.get("impact_score", 0))
 
+            # Find earliest and latest news timestamps in this cluster
+            timestamps = [i.get("timestamp") for i in items if i.get("timestamp")]
+            earliest = min(timestamps) if timestamps else None
+            latest = max(timestamps) if timestamps else None
+
             result.append({
                 "size": len(items),
                 "headlines": [i["headline"] for i in items_sorted[:10]],
@@ -179,6 +184,8 @@ class ThemeAnalysisService:
                 "tickers": list(all_tickers)[:15],
                 "avg_impact": np.mean([i.get("impact_score", 0) for i in items]),
                 "sentiments": [i.get("sentiment", "neutral") for i in items],
+                "earliest_date": earliest,
+                "latest_date": latest,
             })
 
         return result[:self.max_themes * 2]  # send more clusters, LLM will filter
@@ -248,10 +255,16 @@ class ThemeAnalysisService:
                 sentiment_counts[s] = sentiment_counts.get(s, 0) + 1
             dominant_sentiment = max(sentiment_counts, key=sentiment_counts.get) if sentiment_counts else "neutral"
 
+            date_range = ""
+            if cluster.get("earliest_date") and cluster.get("latest_date"):
+                earliest_str = str(cluster["earliest_date"])[:10]
+                latest_str = str(cluster["latest_date"])[:10]
+                date_range = f", date range: {earliest_str} to {latest_str}"
+
             desc = (
                 f"Cluster {i + 1} ({cluster['size']} articles, "
                 f"avg impact: {cluster['avg_impact']:.1f}, "
-                f"dominant sentiment: {dominant_sentiment}):\n"
+                f"dominant sentiment: {dominant_sentiment}{date_range}):\n"
                 f"  Sectors: {', '.join(cluster['sectors'])}\n"
                 f"  Tickers: {', '.join(cluster['tickers'][:10])}\n"
                 f"  Headlines:\n"
@@ -283,10 +296,12 @@ Respond ONLY with a JSON array. No other text. Example:
     "lifecycle_stage": "hot",
     "confidence": 0.85,
     "related_tickers": ["NVDA", "AMD", "AVGO", "MSFT", "GOOGL"],
-    "related_sectors": ["Technology", "Semiconductors"]
+    "related_sectors": ["Technology", "Semiconductors"],
+    "source_clusters": [1, 3]
   }}
 ]
 
+IMPORTANT: Include "source_clusters" as an array of cluster numbers that contributed to each theme. This helps track theme origins.
 Return at most {self.max_themes} themes. Only include themes with clear, persistent narratives (not one-off events)."""
 
         try:
@@ -299,6 +314,20 @@ Return at most {self.max_themes} themes. Only include themes with clear, persist
             )
             text = response.content[0].text
             themes = self._parse_llm_response(text)
+
+            # Enrich themes with earliest_date from source clusters
+            for theme in themes:
+                source_ids = theme.pop("source_clusters", [])
+                earliest = None
+                for cid in source_ids:
+                    idx = cid - 1  # clusters are 1-indexed in prompt
+                    if 0 <= idx < len(clusters) and clusters[idx].get("earliest_date"):
+                        dt = clusters[idx]["earliest_date"]
+                        if earliest is None or dt < earliest:
+                            earliest = dt
+                if earliest:
+                    theme["earliest_date"] = earliest
+
             logger.info(f"Claude identified {len(themes)} themes")
             return themes
         except Exception as e:
@@ -373,8 +402,31 @@ Return at most {self.max_themes} themes. Only include themes with clear, persist
                     existing.related_sectors = td.get("related_sectors", existing.related_sectors)
                     existing.news_count = td.get("news_count", existing.news_count)
                     existing.last_updated = now
+                    # Backdate first_seen if cluster has earlier news
+                    if td.get("earliest_date"):
+                        try:
+                            from dateutil.parser import parse as parse_dt
+                            parsed = parse_dt(str(td["earliest_date"]))
+                            if parsed.tzinfo is None:
+                                parsed = parsed.replace(tzinfo=timezone.utc)
+                            if parsed < existing.first_seen:
+                                existing.first_seen = parsed
+                        except Exception:
+                            pass
                     theme_id = existing.id
                 else:
+                    # Use earliest related news date if available, otherwise now
+                    first_seen = now
+                    if td.get("earliest_date"):
+                        try:
+                            from dateutil.parser import parse as parse_dt
+                            parsed = parse_dt(str(td["earliest_date"]))
+                            if parsed.tzinfo is None:
+                                parsed = parsed.replace(tzinfo=timezone.utc)
+                            first_seen = parsed
+                        except Exception:
+                            pass
+
                     theme = Theme(
                         name=name,
                         summary=td.get("summary", ""),
@@ -383,7 +435,7 @@ Return at most {self.max_themes} themes. Only include themes with clear, persist
                         related_tickers=td.get("related_tickers", []),
                         related_sectors=td.get("related_sectors", []),
                         news_count=td.get("news_count", 0),
-                        first_seen=now,
+                        first_seen=first_seen,
                         last_updated=now,
                     )
                     session.add(theme)

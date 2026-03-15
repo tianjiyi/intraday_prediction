@@ -1,0 +1,292 @@
+// ============================================================================
+// Day_X Optuna-Optimized Strategy (1Min QQQ)
+// Best trial #196 — Composite score 2.8278
+// Walk-forward validated across 2016-2025
+// Strategies: buy_dip, sell_rip, trend_dip
+// ============================================================================
+
+//@version=6
+strategy("Day_X Optuna 1Min", overlay=true, default_qty_type=strategy.percent_of_equity,
+         default_qty_value=100, initial_capital=100000, slippage=1,
+         calc_on_every_tick=false, process_orders_on_close=true)
+
+// ─── Inputs (Optuna best params) ────────────────────────────────────────────
+// Indicators
+i_cci_fast       = input.int(8,     "CCI Period",        group="Indicators")
+i_bb_period      = input.int(25,    "BB Period",         group="Indicators")
+i_bb_std         = input.float(2.61, "BB Std Dev",       step=0.01, group="Indicators")
+i_atr_period     = input.int(20,    "ATR Period",        group="Indicators")
+i_exhaust_lb     = input.int(6,     "Exhaustion Lookback", group="Indicators")
+i_vwap_slope_bars = input.int(6,    "VWAP Slope Bars",   group="Indicators")
+
+// Signal params
+i_bb_zone_pct    = input.float(1.52, "BB Zone %",        step=0.01, group="Signals")
+i_trend_vwap_pct = input.float(0.374, "Trend Dip VWAP %", step=0.001, group="Signals")
+i_trend_above_pct = input.float(0.647, "Trend Dip Above VWAP %", step=0.001, group="Signals")
+i_cci_neutral_lo = input.int(-98,   "CCI Neutral Low",   group="Signals")
+i_cci_neutral_hi = input.int(87,    "CCI Neutral High",  group="Signals")
+
+// Risk
+i_stop_atr_mult  = input.float(2.445, "Stop ATR Mult",   step=0.001, group="Risk")
+i_target1_r      = input.float(1.906, "Target 1 R",      step=0.001, group="Risk")
+i_target2_r      = input.float(1.981, "Target 2 R",      step=0.001, group="Risk")
+i_partial_pct    = input.float(0.38,  "Partial Exit %",   step=0.01, group="Risk")
+i_trail_step     = input.float(0.841, "Trail Step R",     step=0.001, group="Risk")
+
+// Time filter
+i_entry_earliest = input.session("0945-1416", "Entry Window", group="Time")
+i_no_entry_after = input.int(1530, "No Entry After (HHMM)", group="Time")
+i_eod_flatten    = input.int(1555, "EOD Flatten (HHMM)", group="Time")
+
+// Strategy toggles
+i_buy_dip   = input.bool(true, "Enable Buy Dip",   group="Strategies")
+i_sell_rip   = input.bool(true, "Enable Sell Rip",  group="Strategies")
+i_trend_dip  = input.bool(true, "Enable Trend Dip", group="Strategies")
+
+// ─── Time Helpers ───────────────────────────────────────────────────────────
+timeHHMM() => hour * 100 + minute
+
+inTimeWindow() =>
+    t = timeHHMM()
+    t >= 945 and t <= 1416
+
+isRTH() =>
+    t = timeHHMM()
+    t >= 930 and t < 1600
+
+isEOD() =>
+    t = timeHHMM()
+    t >= i_eod_flatten
+
+noNewEntries() =>
+    t = timeHHMM()
+    t > i_no_entry_after
+
+isNewSession() =>
+    ta.change(time("D")) != 0
+
+// ─── Indicators ─────────────────────────────────────────────────────────────
+
+// CCI
+typicalPrice = (high + low + close) / 3
+cci_sma = ta.sma(typicalPrice, i_cci_fast)
+// Pine's ta.dev computes mean deviation
+cci_md = ta.dev(typicalPrice, i_cci_fast)
+cci14 = (typicalPrice - cci_sma) / (0.015 * cci_md)
+
+// Bollinger Bands
+bb_mid = ta.sma(close, i_bb_period)
+bb_dev = ta.stdev(close, i_bb_period)
+bb_upper = bb_mid + i_bb_std * bb_dev
+bb_lower = bb_mid - i_bb_std * bb_dev
+
+// ATR
+atr_val = ta.atr(i_atr_period)
+
+// VWAP (built-in, resets daily)
+vwap_val = ta.vwap
+
+// VWAP slope
+vwap_slope = vwap_val - vwap_val[i_vwap_slope_bars]
+
+// VWAP % above — cumulative % of bars where close > VWAP in session
+var int session_bars = 0
+var int above_vwap_count = 0
+if isNewSession()
+    session_bars := 0
+    above_vwap_count := 0
+session_bars += 1
+above_vwap_count += (close > vwap_val ? 1 : 0)
+vwap_pct_above = session_bars > 0 ? above_vwap_count / session_bars : 0.0
+
+// BB distance (% from band)
+bb_lower_dist = (close - bb_lower) / close * 100
+bb_upper_dist = (bb_upper - close) / close * 100
+
+// VWAP distance %
+vwap_dist_pct = (close - vwap_val) / vwap_val * 100
+
+// ─── Exhaustion ─────────────────────────────────────────────────────────────
+// Consecutive up/down closes
+var int up_streak = 0
+var int down_streak = 0
+if close > close[1]
+    up_streak += 1
+    down_streak := 0
+else if close < close[1]
+    down_streak += 1
+    up_streak := 0
+else
+    up_streak := 0
+    down_streak := 0
+
+exhaust_up = up_streak >= i_exhaust_lb
+exhaust_down = down_streak >= i_exhaust_lb
+
+// ─── Candlestick Patterns ───────────────────────────────────────────────────
+body_size = math.abs(close - open)
+upper_shadow = high - math.max(open, close)
+lower_shadow = math.min(open, close) - low
+candle_range = high - low
+
+is_hammer = lower_shadow >= 2 * body_size and upper_shadow <= body_size * 0.5 and candle_range > 0 and body_size > 0
+is_inv_hammer = upper_shadow >= 2 * body_size and lower_shadow <= body_size * 0.5 and candle_range > 0 and body_size > 0
+
+// Engulfing
+prev_body_low = math.min(open[1], close[1])
+prev_body_high = math.max(open[1], close[1])
+curr_body_low = math.min(open, close)
+curr_body_high = math.max(open, close)
+
+is_bull_engulfing = close > open and close[1] < open[1] and curr_body_low <= prev_body_low and curr_body_high >= prev_body_high
+is_bear_engulfing = close < open and close[1] > open[1] and curr_body_low <= prev_body_low and curr_body_high >= prev_body_high
+
+// ─── Strategy Signals ───────────────────────────────────────────────────────
+
+// buy_dip: Mean reversion long from oversold BB zone
+sig_buy_dip = i_buy_dip and
+     bb_lower_dist <= i_bb_zone_pct and
+     cci14 < -100 and
+     exhaust_down and
+     (is_hammer or is_bull_engulfing) and
+     close < vwap_val
+
+// sell_rip: Mean reversion short from overbought BB zone
+sig_sell_rip = i_sell_rip and
+     bb_upper_dist <= i_bb_zone_pct and
+     cci14 > 100 and
+     exhaust_up and
+     (is_inv_hammer or is_bear_engulfing) and
+     close > vwap_val
+
+// trend_dip: Buy pullback to VWAP in uptrend
+sig_trend_dip = i_trend_dip and
+     vwap_slope > 0 and
+     vwap_pct_above >= i_trend_above_pct and
+     math.abs(vwap_dist_pct) <= i_trend_vwap_pct and
+     cci14 >= i_cci_neutral_lo and cci14 <= i_cci_neutral_hi and
+     (is_hammer or is_bull_engulfing or close > open)
+
+// ─── Entry Logic ────────────────────────────────────────────────────────────
+canEnter = isRTH() and inTimeWindow() and not noNewEntries() and not isEOD() and strategy.position_size == 0
+
+// Risk calculation
+risk_amount = atr_val * i_stop_atr_mult
+
+// Priority: buy_dip > sell_rip > trend_dip
+if canEnter and sig_buy_dip
+    stop_px = close - risk_amount
+    t1_px = close + risk_amount * i_target1_r
+    t2_px = close + risk_amount * i_target2_r
+    strategy.entry("BuyDip", strategy.long)
+    strategy.exit("BD_T1", "BuyDip", qty_percent=math.round(i_partial_pct * 100), limit=t1_px, stop=stop_px)
+    strategy.exit("BD_T2", "BuyDip", limit=t2_px, stop=stop_px)
+
+else if canEnter and sig_sell_rip
+    stop_px = close + risk_amount
+    t1_px = close - risk_amount * i_target1_r
+    t2_px = close - risk_amount * i_target2_r
+    strategy.entry("SellRip", strategy.short)
+    strategy.exit("SR_T1", "SellRip", qty_percent=math.round(i_partial_pct * 100), limit=t1_px, stop=stop_px)
+    strategy.exit("SR_T2", "SellRip", limit=t2_px, stop=stop_px)
+
+else if canEnter and sig_trend_dip
+    stop_px = close - risk_amount
+    t1_px = close + risk_amount * i_target1_r
+    t2_px = close + risk_amount * i_target2_r
+    strategy.entry("TrendDip", strategy.long)
+    strategy.exit("TD_T1", "TrendDip", qty_percent=math.round(i_partial_pct * 100), limit=t1_px, stop=stop_px)
+    strategy.exit("TD_T2", "TrendDip", limit=t2_px, stop=stop_px)
+
+// ─── EOD Flatten ────────────────────────────────────────────────────────────
+if isEOD() and strategy.position_size != 0
+    strategy.close_all("EOD Flatten")
+
+// ─── Progressive Trailing Stop ──────────────────────────────────────────────
+// Track best R-multiple and ratchet stop after T1 hit
+var float trail_stop = na
+var float entry_px = na
+var float risk_r = na
+var bool t1_hit = false
+var float best_r = 0.0
+var int pos_dir = 0  // 1=long, -1=short
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    // New position opened
+    entry_px := strategy.position_avg_price
+    risk_r := risk_amount
+    t1_hit := false
+    best_r := 0.0
+    pos_dir := strategy.position_size > 0 ? 1 : -1
+    trail_stop := pos_dir == 1 ? entry_px - risk_amount : entry_px + risk_amount
+
+if strategy.position_size != 0 and not na(entry_px) and risk_r > 0
+    current_r = pos_dir == 1 ? (high - entry_px) / risk_r : (entry_px - low) / risk_r
+
+    // Detect T1 hit
+    if current_r >= i_target1_r
+        t1_hit := true
+
+    // Progressive trail after T1
+    if t1_hit and current_r > best_r
+        best_r := current_r
+        trail_r = (math.floor(best_r / i_trail_step) - 1) * i_trail_step
+        if trail_r > 0
+            new_stop = pos_dir == 1 ? entry_px + trail_r * risk_r : entry_px - trail_r * risk_r
+            if pos_dir == 1
+                trail_stop := math.max(nz(trail_stop, 0), new_stop)
+            else
+                trail_stop := math.min(nz(trail_stop, 999999), new_stop)
+
+// Apply progressive trail stop
+if strategy.position_size != 0 and t1_hit and not na(trail_stop)
+    if pos_dir == 1 and low <= trail_stop
+        strategy.close("TrendDip", comment="Trail Stop")
+        strategy.close("BuyDip", comment="Trail Stop")
+    if pos_dir == -1 and high >= trail_stop
+        strategy.close("SellRip", comment="Trail Stop")
+
+// Reset on flat
+if strategy.position_size == 0
+    trail_stop := na
+    entry_px := na
+    t1_hit := false
+    best_r := 0.0
+
+// ─── Plots ──────────────────────────────────────────────────────────────────
+plot(vwap_val, "VWAP", color=color.new(color.orange, 30), linewidth=2)
+plot(bb_upper, "BB Upper", color=color.new(color.blue, 60))
+plot(bb_mid, "BB Mid", color=color.new(color.blue, 80), style=plot.style_circles)
+plot(bb_lower, "BB Lower", color=color.new(color.blue, 60))
+
+// Trail stop line
+plot(strategy.position_size != 0 and t1_hit ? trail_stop : na, "Trail Stop",
+     color=color.new(color.red, 20), style=plot.style_stepline_diamond, linewidth=2)
+
+// Signal markers
+plotshape(sig_buy_dip and canEnter, "Buy Dip", shape.triangleup, location.belowbar,
+          color=color.new(color.green, 0), size=size.small)
+plotshape(sig_sell_rip and canEnter, "Sell Rip", shape.triangledown, location.abovebar,
+          color=color.new(color.red, 0), size=size.small)
+plotshape(sig_trend_dip and canEnter, "Trend Dip", shape.diamond, location.belowbar,
+          color=color.new(color.teal, 0), size=size.small)
+
+// ─── Info Table ─────────────────────────────────────────────────────────────
+var table infoTable = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 85))
+if barstate.islast
+    table.cell(infoTable, 0, 0, "Day_X Optuna 1Min", text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 1, "CCI(" + str.tostring(i_cci_fast) + ")", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 1, str.tostring(cci14, "#.0"), text_color=cci14 > 100 ? color.red : cci14 < -100 ? color.green : color.white, text_size=size.tiny)
+    table.cell(infoTable, 0, 2, "BB Dist", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 2, "L:" + str.tostring(bb_lower_dist, "#.##") + "% U:" + str.tostring(bb_upper_dist, "#.##") + "%", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 0, 3, "VWAP Dist", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 3, str.tostring(vwap_dist_pct, "#.###") + "%", text_color=vwap_dist_pct > 0 ? color.green : color.red, text_size=size.tiny)
+    table.cell(infoTable, 0, 4, "VWAP %Above", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 4, str.tostring(vwap_pct_above * 100, "#.0") + "%", text_color=vwap_pct_above > 0.6 ? color.green : color.white, text_size=size.tiny)
+    table.cell(infoTable, 0, 5, "Exhaust", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 5, "↑" + str.tostring(up_streak) + " ↓" + str.tostring(down_streak), text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 0, 6, "ATR", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 6, str.tostring(atr_val, "#.##"), text_color=color.white, text_size=size.tiny)
+    if strategy.position_size != 0 and not na(trail_stop)
+        table.cell(infoTable, 0, 7, "Trail Stop", text_color=color.gray, text_size=size.tiny)
+        table.cell(infoTable, 1, 7, str.tostring(trail_stop, "#.##"), text_color=color.red, text_size=size.tiny)

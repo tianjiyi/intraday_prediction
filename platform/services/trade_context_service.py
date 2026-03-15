@@ -138,8 +138,8 @@ class TradeContextService:
         tf = TimeFrame(tf_minutes, TimeFrameUnit.Minute)
 
         now_utc = datetime.now(timezone.utc)
-        # Fetch today's session (go back ~18h to cover pre-market)
-        start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=6)
+        # Fetch last 2 trading days to ensure enough bars outside market hours
+        start = now_utc - timedelta(hours=48)
 
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
