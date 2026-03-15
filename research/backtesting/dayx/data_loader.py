@@ -16,8 +16,11 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from .config import DayXConfig
 
 # Load .env from project root
-_env_path = Path(__file__).resolve().parents[3] / ".env"
+_root = Path(__file__).resolve().parents[3]
+_env_path = _root / ".env"
 load_dotenv(_env_path)
+
+_cache_dir = _root / "data" / "backtests" / "dayx" / "cache"
 
 
 def _parse_timeframe(tf_str: str) -> TimeFrame:
@@ -87,6 +90,27 @@ def fetch_bars(cfg: DayXConfig) -> pd.DataFrame:
     return df
 
 
+def _cache_path(cfg: DayXConfig) -> Path:
+    return _cache_dir / f"{cfg.symbol}_{cfg.timeframe}_{cfg.start_date}_{cfg.end_date}.parquet"
+
+
+def fetch_bars_cached(cfg: DayXConfig) -> pd.DataFrame:
+    """Fetch bars with parquet caching. Caches raw data before RTH filtering."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    cache_file = _cache_path(cfg)
+    if cache_file.exists():
+        logger.info(f"Loading cached data from {cache_file.name}")
+        return pd.read_parquet(cache_file)
+
+    df = fetch_bars(cfg)
+    _cache_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(cache_file)
+    logger.info(f"Cached {len(df)} bars to {cache_file.name}")
+    return df
+
+
 def filter_rth(df: pd.DataFrame, cfg: DayXConfig) -> pd.DataFrame:
     """Keep only Regular Trading Hours bars."""
     start_h, start_m = map(int, cfg.rth_start.split(":"))
@@ -143,7 +167,7 @@ def compute_opening_range(df: pd.DataFrame, cfg: DayXConfig) -> pd.DataFrame:
 
 def load_data(cfg: DayXConfig) -> pd.DataFrame:
     """Full pipeline: fetch → filter RTH → add markers → opening range."""
-    df = fetch_bars(cfg)
+    df = fetch_bars_cached(cfg)
     df = filter_rth(df, cfg)
     df = add_session_markers(df, cfg)
     df = compute_opening_range(df, cfg)

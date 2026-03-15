@@ -33,18 +33,18 @@ def make_variants() -> dict[str, DayXConfig]:
     variants = {}
 
     # v1 baseline: original 3 strategies, no filters
-    c = DayXConfig(symbol="QQQ", start_date="2020-01-01", end_date="2026-03-13",
+    c = DayXConfig(symbol="QQQ", start_date="2016-01-01", end_date="2026-03-13",
                    require_exhaustion=False, strategies=["long_trend", "short_trend", "long_dip"])
     variants["v1_baseline"] = c
 
     # v1 + time filter + progressive trail (best v1)
-    c = DayXConfig(symbol="QQQ", start_date="2020-01-01", end_date="2026-03-13",
+    c = DayXConfig(symbol="QQQ", start_date="2016-01-01", end_date="2026-03-13",
                    require_exhaustion=False, strategies=["long_trend", "short_trend", "long_dip"],
                    time_filter=True, trail_mode="progressive", trail_progressive_step=0.5)
     variants["v1_best"] = c
 
     # v2: mean reversion + trend dip, fixed R targets, wider stops
-    c = DayXConfig(symbol="QQQ", start_date="2020-01-01", end_date="2026-03-13",
+    c = DayXConfig(symbol="QQQ", start_date="2016-01-01", end_date="2026-03-13",
                    require_exhaustion=False, strategies=["buy_dip", "sell_rip", "trend_dip"],
                    use_vwap_target=False, stop_atr_mult=2.0,
                    time_filter=True, trail_mode="progressive", trail_progressive_step=0.5)
@@ -62,7 +62,7 @@ def run_one(label: str, cfg: DayXConfig, df_raw: pd.DataFrame) -> dict:
 
     # Per-year breakdown
     yearly = {}
-    for year in range(2020, 2027):
+    for year in range(2016, 2027):
         yt = [t for t in trades if t.entry_time.year == year]
         if yt:
             yearly[year] = {
@@ -78,7 +78,7 @@ def main():
     variants = make_variants()
 
     logger.info("Loading data...")
-    base = DayXConfig(symbol="QQQ", start_date="2020-01-01", end_date="2026-03-13")
+    base = DayXConfig(symbol="QQQ", start_date="2016-01-01", end_date="2026-03-13")
     df_raw = load_data(base)
     logger.info(f"Loaded {len(df_raw)} bars")
 
@@ -88,7 +88,7 @@ def main():
         results[label] = run_one(label, cfg, df_raw)
 
     # Print comparison
-    years = list(range(2020, 2027))
+    years = list(range(2016, 2027))
     yr_cols = "".join(f" {y} PnL   {y} WR" for y in years)
 
     print("\n" + "=" * 200)
@@ -172,7 +172,7 @@ def main():
                     color=colors_map.get(label, "gray"), linewidth=lw,
                     linestyle=ls, alpha=0.9, label=label)
 
-        for yr in range(2021, 2027):
+        for yr in range(2017, 2027):
             ax.axvline(x=datetime.datetime(yr, 1, 1, tzinfo=timezone.utc),
                        color="#555555", linestyle=":", alpha=0.5)
         ax.axhline(y=0, color="gray", linestyle="--", alpha=0.4)
@@ -191,13 +191,13 @@ def main():
         for spine in ax.spines.values():
             spine.set_color("#333333")
 
-        fig.suptitle("Day_X v1 vs v2 — QQQ 2020-2026",
+        fig.suptitle("Day_X v1 vs v2 — QQQ 2016-2026",
                      fontsize=15, fontweight="bold", color="white")
         plt.tight_layout()
 
         out_dir = Path(_root) / "data" / "backtests" / "dayx"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out = out_dir / "v1_vs_v2_vs_v21_comparison.png"
+        out = out_dir / "v1_vs_v2_10year_comparison.png"
         plt.savefig(out, dpi=150, bbox_inches="tight")
         logger.info(f"Chart saved to {out}")
 

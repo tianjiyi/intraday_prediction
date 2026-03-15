@@ -13,13 +13,30 @@ from .config import DayXConfig
 # CCI (Commodity Channel Index)
 # ---------------------------------------------------------------------------
 
+def _rolling_mad(arr: np.ndarray, period: int) -> np.ndarray:
+    """Fast rolling mean absolute deviation using numpy strides."""
+    n = len(arr)
+    result = np.full(n, np.nan)
+    if n < period:
+        return result
+    # Vectorized rolling window via stride tricks
+    shape = (n - period + 1, period)
+    strides = (arr.strides[0], arr.strides[0])
+    windows = np.lib.stride_tricks.as_strided(arr, shape=shape, strides=strides)
+    means = windows.mean(axis=1)
+    # MAD = mean(|x - mean(x)|) for each window
+    result[period - 1:] = np.mean(np.abs(windows - means[:, None]), axis=1)
+    return result
+
+
 def cci(df: pd.DataFrame, period: int) -> pd.Series:
     """
     CCI = (typical_price - SMA(typical_price)) / (0.015 * mean_deviation)
+    Uses numpy stride tricks for fast rolling MAD (no lambda apply).
     """
     tp = (df["high"] + df["low"] + df["close"]) / 3
     sma = tp.rolling(period).mean()
-    mad = tp.rolling(period).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+    mad = pd.Series(_rolling_mad(tp.values.astype(np.float64), period), index=df.index)
     return (tp - sma) / (0.015 * mad)
 
 
@@ -254,10 +271,14 @@ def compute_all(df: pd.DataFrame, cfg: DayXConfig) -> pd.DataFrame:
     df["bull_engulfing"] = bullish_engulfing(df)
     df["bear_engulfing"] = bearish_engulfing(df)
 
-    # Volatility regime: ATR percentile over rolling window
-    df["atr_pctile"] = df["atr"].rolling(cfg.vol_atr_lookback).apply(
-        lambda x: pd.Series(x).rank(pct=True).iloc[-1] * 100, raw=False
-    )
+    # Volatility regime: ATR percentile over rolling window (fast numpy)
+    atr_vals = df["atr"].values
+    lookback = cfg.vol_atr_lookback
+    atr_pctile = np.full(len(atr_vals), np.nan)
+    for i in range(lookback - 1, len(atr_vals)):
+        window = atr_vals[i - lookback + 1:i + 1]
+        atr_pctile[i] = np.sum(window <= atr_vals[i]) / lookback * 100
+    df["atr_pctile"] = atr_pctile
 
     # Trend confirmation: SMA slope
     sma = df["close"].rolling(cfg.trend_sma_period).mean()
@@ -276,14 +297,9 @@ def compute_all(df: pd.DataFrame, cfg: DayXConfig) -> pd.DataFrame:
     # VWAP slope (is VWAP rising or falling over N bars?)
     df["vwap_slope"] = df["vwap"] - df["vwap"].shift(cfg.vwap_slope_bars)
 
-    # % of session bars where close > VWAP (trend day detector)
-    df["vwap_pct_above"] = 0.0
-    for date in df["session_date"].unique():
-        mask = df["session_date"] == date
-        day_df = df[mask]
-        above = (day_df["close"] > day_df["vwap"]).astype(float)
-        # Expanding mean: at each bar, what % of bars so far today were above VWAP
-        df.loc[mask, "vwap_pct_above"] = above.expanding().mean().values
+    # % of session bars where close > VWAP (trend day detector) — vectorized
+    above_vwap = (df["close"] > df["vwap"]).astype(float)
+    df["vwap_pct_above"] = above_vwap.groupby(df["session_date"]).expanding().mean().droplevel(0)
 
     # VWAP distance (% from VWAP)
     df["vwap_dist_pct"] = (df["close"] - df["vwap"]) / df["vwap"] * 100
