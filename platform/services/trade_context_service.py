@@ -138,8 +138,8 @@ class TradeContextService:
         tf = TimeFrame(tf_minutes, TimeFrameUnit.Minute)
 
         now_utc = datetime.now(timezone.utc)
-        # Fetch last 2 trading days to ensure enough bars outside market hours
-        start = now_utc - timedelta(hours=48)
+        # Fetch last 5 calendar days to cover weekends/holidays
+        start = now_utc - timedelta(days=5)
 
         request = StockBarsRequest(
             symbol_or_symbols=symbol,

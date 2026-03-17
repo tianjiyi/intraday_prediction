@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMS Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --orange: #db6d28;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .header .status {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .status-dot.ok { background: var(--green); }
+  .status-dot.err { background: var(--red); }
+  .tabs {
+    display: flex;
+    gap: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  .tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    font-size: 13px;
+    font-family: inherit;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .content { padding: 20px 24px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .toolbar select, .toolbar input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .toolbar button {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .toolbar button:hover { opacity: 0.85; }
+  .toolbar .auto-refresh {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  th {
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover td { background: rgba(88, 166, 255, 0.04); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .badge.accepted, .badge.filled, .badge.ok { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .badge.rejected { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .badge.pending, .badge.submitted { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+  .badge.duplicate { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
+  .badge.canceled { background: rgba(219, 109, 40, 0.15); color: var(--orange); }
+  .badge.buy, .badge.long { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .badge.sell, .badge.short { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .badge.open { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+  .badge.close { background: rgba(219, 109, 40, 0.15); color: var(--orange); }
+  .badge.cancel { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  .mono { font-family: inherit; }
+  .text-muted { color: var(--text-muted); }
+  .text-sm { font-size: 11px; }
+  .empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .card .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .card .value {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .json-toggle {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 11px;
+  }
+  .json-toggle:hover { text-decoration: underline; }
+  .json-content {
+    display: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    margin-top: 4px;
+    white-space: pre-wrap;
+    font-size: 11px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .json-content.show { display: block; }
+  .table-wrap {
+    max-height: calc(100vh - 250px);
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OMS Dashboard</h1>
+  <div class="status" id="health-status">
+    <span class="text-muted">Checking...</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-panel="orders">Orders</button>
+  <button class="tab" data-panel="webhooks">Webhook Log</button>
+  <button class="tab" data-panel="positions">Positions</button>
+  <button class="tab" data-panel="trades">Trades</button>
+  <button class="tab" data-panel="accounts">Accounts</button>
+</div>
+
+<div class="content">
+
+  <!-- ORDERS -->
+  <div class="panel active" id="panel-orders">
+    <div class="cards" id="order-stats"></div>
+    <div class="toolbar">
+      <select id="order-status-filter">
+        <option value="">All statuses</option>
+        <option value="accepted">Accepted</option>
+        <option value="filled">Filled</option>
+        <option value="submitted">Submitted</option>
+        <option value="pending">Pending</option>
+        <option value="rejected">Rejected</option>
+        <option value="canceled">Canceled</option>
+      </select>
+      <select id="order-source-filter">
+        <option value="">All sources</option>
+      </select>
+      <input type="text" id="order-symbol-filter" placeholder="Symbol..." style="width:90px;">
+      <button onclick="loadOrders()">Refresh</button>
+      <div class="auto-refresh">
+        <input type="checkbox" id="auto-refresh-orders" checked>
+        <label for="auto-refresh-orders">Auto-refresh 10s</label>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th>Action</th>
+            <th>Side</th>
+            <th>Type</th>
+            <th>Qty</th>
+            <th>Price</th>
+            <th>Status</th>
+            <th>Source</th>
+            <th>Alpaca ID</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="orders-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- WEBHOOK LOG -->
+  <div class="panel" id="panel-webhooks">
+    <div class="toolbar">
+      <select id="webhook-source-filter">
+        <option value="">All sources</option>
+      </select>
+      <button onclick="loadWebhookLogs()">Refresh</button>
+      <div class="auto-refresh">
+        <input type="checkbox" id="auto-refresh-webhooks" checked>
+        <label for="auto-refresh-webhooks">Auto-refresh 10s</label>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Source</th>
+            <th>Action</th>
+            <th>Symbol</th>
+            <th>Response</th>
+            <th>Reason</th>
+            <th>Latency</th>
+            <th>Idempotency Key</th>
+            <th>Request</th>
+          </tr>
+        </thead>
+        <tbody id="webhooks-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- POSITIONS -->
+  <div class="panel" id="panel-positions">
+    <div class="toolbar">
+      <button onclick="loadPositions()">Refresh</button>
+      <div class="auto-refresh">
+        <input type="checkbox" id="auto-refresh-positions" checked>
+        <label for="auto-refresh-positions">Auto-refresh 30s</label>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>Current</th>
+            <th>Unrealized P&L</th>
+            <th>Market Value</th>
+            <th>Opened</th>
+          </tr>
+        </thead>
+        <tbody id="positions-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TRADES -->
+  <div class="panel" id="panel-trades">
+    <div class="cards" id="trade-stats"></div>
+    <div class="toolbar">
+      <input type="text" id="trade-symbol-filter" placeholder="Symbol..." style="width:90px;">
+      <button onclick="loadTrades()">Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Closed</th>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>P&L</th>
+            <th>P&L %</th>
+            <th>Exit Reason</th>
+            <th>Hold Time</th>
+            <th>Tags</th>
+          </tr>
+        </thead>
+        <tbody id="trades-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ACCOUNTS -->
+  <div class="panel" id="panel-accounts">
+    <div class="toolbar">
+      <button onclick="loadAccounts()">Refresh</button>
+    </div>
+    <div id="accounts-cards" class="cards"></div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+
+// -- API Key management (stored in localStorage)
+let apiKey = localStorage.getItem('oms_api_key') || '';
+
+function getHeaders() {
+  const h = {};
+  if (apiKey) h['X-OMS-API-Key'] = apiKey;
+  return h;
+}
+
+async function apiFetch(url) {
+  const r = await fetch(url, { headers: getHeaders() });
+  if (r.status === 401) {
+    const key = prompt('Enter OMS API Key:', apiKey);
+    if (key) {
+      apiKey = key;
+      localStorage.setItem('oms_api_key', key);
+      return fetch(url, { headers: getHeaders() });
+    }
+  }
+  return r;
+}
+
+// -- Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+  });
+});
+
+// -- Helpers
+function fmtTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+function fmtPrice(v) { return v != null ? '$' + Number(v).toFixed(2) : '-'; }
+function fmtQty(v) { return v != null ? Number(v).toFixed(v % 1 === 0 ? 0 : 2) : '-'; }
+function badge(val) { return `<span class="badge ${(val||'').toLowerCase()}">${val || '-'}</span>`; }
+function pnl(val) {
+  if (val == null) return '-';
+  const n = Number(val);
+  const cls = n >= 0 ? 'pnl-pos' : 'pnl-neg';
+  const sign = n >= 0 ? '+' : '';
+  return `<span class="${cls}">${sign}$${n.toFixed(2)}</span>`;
+}
+function pnlPct(val) {
+  if (val == null) return '-';
+  const n = Number(val) * 100;
+  const cls = n >= 0 ? 'pnl-pos' : 'pnl-neg';
+  const sign = n >= 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${n.toFixed(2)}%</span>`;
+}
+function shortId(id) { return id ? id.substring(0, 8) + '...' : '-'; }
+function holdTime(sec) {
+  if (!sec) return '-';
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+  return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+}
+function toggleJson(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('show');
+}
+let jsonCounter = 0;
+function jsonCell(obj) {
+  if (!obj) return '<span class="text-muted">-</span>';
+  const id = 'json-' + (++jsonCounter);
+  return `<span class="json-toggle" onclick="toggleJson('${id}')">view</span>
+    <div class="json-content" id="${id}">${JSON.stringify(obj, null, 2)}</div>`;
+}
+function tagsCell(obj) {
+  if (!obj) return '<span class="text-muted">-</span>';
+  return Object.entries(obj).map(([k,v]) => `<span class="text-muted">${k}:</span>${v}`).join(' ');
+}
+
+// -- Health
+async function loadHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    const data = await r.json();
+    const el = document.getElementById('health-status');
+    const accts = (data.accounts || []).map(a =>
+      `<span><span class="status-dot ${a.connected ? 'ok' : 'err'}"></span>${a.name}</span>`
+    ).join('');
+    el.innerHTML = `<span><span class="status-dot ok"></span>Connected</span>${accts}`;
+  } catch(e) {
+    document.getElementById('health-status').innerHTML =
+      '<span><span class="status-dot err"></span>Disconnected</span>';
+  }
+}
+
+// -- Orders
+async function loadOrders() {
+  const params = new URLSearchParams();
+  const st = document.getElementById('order-status-filter').value;
+  const src = document.getElementById('order-source-filter').value;
+  const sym = document.getElementById('order-symbol-filter').value;
+  if (st) params.set('status', st);
+  if (src) params.set('source', src);
+  if (sym) params.set('symbol', sym);
+  params.set('limit', '100');
+
+  try {
+    const r = await apiFetch(API + '/orders?' + params);
+    const orders = await r.json();
+
+    // Stats cards
+    const total = orders.length;
+    const accepted = orders.filter(o => ['accepted','filled','submitted'].includes(o.status)).length;
+    const rejected = orders.filter(o => o.status === 'rejected').length;
+    const pending = orders.filter(o => o.status === 'pending').length;
+    document.getElementById('order-stats').innerHTML = `
+      <div class="card"><div class="label">Total Orders</div><div class="value">${total}</div></div>
+      <div class="card"><div class="label">Accepted</div><div class="value pnl-pos">${accepted}</div></div>
+      <div class="card"><div class="label">Rejected</div><div class="value pnl-neg">${rejected}</div></div>
+      <div class="card"><div class="label">Pending</div><div class="value" style="color:var(--yellow)">${pending}</div></div>
+    `;
+
+    // Populate source filter
+    const sources = [...new Set(orders.map(o => o.source))];
+    const srcSelect = document.getElementById('order-source-filter');
+    const curSrc = srcSelect.value;
+    srcSelect.innerHTML = '<option value="">All sources</option>' +
+      sources.map(s => `<option value="${s}" ${s===curSrc?'selected':''}>${s}</option>`).join('');
+
+    // Table
+    const tbody = document.getElementById('orders-tbody');
+    if (orders.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" class="empty">No orders found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = orders.map(o => `
+      <tr>
+        <td class="text-sm">${fmtTime(o.created_at)}</td>
+        <td><strong>${o.symbol}</strong></td>
+        <td>${badge(o.action)}</td>
+        <td>${o.side ? badge(o.side) : '-'}</td>
+        <td>${o.order_type}</td>
+        <td>${fmtQty(o.qty)}${o.notional ? ' ($'+Number(o.notional).toFixed(0)+')' : ''}</td>
+        <td>${o.limit_price ? fmtPrice(o.limit_price) : (o.filled_avg_price ? fmtPrice(o.filled_avg_price) : 'mkt')}</td>
+        <td>${badge(o.status)}${o.reject_reason ? '<br><span class="text-sm text-muted">'+o.reject_reason+'</span>' : ''}</td>
+        <td>${o.source}</td>
+        <td class="text-sm text-muted" title="${o.alpaca_order_id||''}">${shortId(o.alpaca_order_id)}</td>
+        <td>${tagsCell(o.tags)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error('Failed to load orders:', e);
+  }
+}
+
+// -- Webhook Logs
+async function loadWebhookLogs() {
+  const params = new URLSearchParams();
+  const src = document.getElementById('webhook-source-filter').value;
+  if (src) params.set('source', src);
+  params.set('limit', '100');
+
+  try {
+    const r = await apiFetch(API + '/webhook-logs?' + params);
+    const logs = await r.json();
+
+    // Populate source filter
+    const sources = [...new Set(logs.map(l => l.source))];
+    const srcSelect = document.getElementById('webhook-source-filter');
+    const curSrc = srcSelect.value;
+    srcSelect.innerHTML = '<option value="">All sources</option>' +
+      sources.map(s => `<option value="${s}" ${s===curSrc?'selected':''}>${s}</option>`).join('');
+
+    const tbody = document.getElementById('webhooks-tbody');
+    if (logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No webhook requests logged yet</td></tr>';
+      return;
+    }
+    jsonCounter = 0;
+    tbody.innerHTML = logs.map(l => `
+      <tr>
+        <td class="text-sm">${fmtTime(l.received_at)}</td>
+        <td>${l.source}</td>
+        <td>${badge(l.action)}</td>
+        <td><strong>${l.symbol || '-'}</strong></td>
+        <td>${badge(l.response_status)}</td>
+        <td class="text-sm">${l.response_reason || '-'}</td>
+        <td class="text-sm">${l.duration_ms}ms</td>
+        <td class="text-sm text-muted" title="${l.idempotency_key}">${l.idempotency_key.length > 30 ? l.idempotency_key.substring(0,30)+'...' : l.idempotency_key}</td>
+        <td>${jsonCell(l.request_body)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error('Failed to load webhook logs:', e);
+  }
+}
+
+// -- Positions
+async function loadPositions() {
+  try {
+    const r = await apiFetch(API + '/positions');
+    const positions = await r.json();
+
+    const tbody = document.getElementById('positions-tbody');
+    if (positions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">No open positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => `
+      <tr>
+        <td><strong>${p.symbol}</strong></td>
+        <td>${badge(p.side)}</td>
+        <td>${fmtQty(p.qty)}</td>
+        <td>${fmtPrice(p.entry_price)}</td>
+        <td>${fmtPrice(p.current_price)}</td>
+        <td>${pnl(p.unrealized_pnl)}</td>
+        <td>${fmtPrice(p.market_value)}</td>
+        <td class="text-sm">${fmtTime(p.opened_at)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error('Failed to load positions:', e);
+  }
+}
+
+// -- Trades
+async function loadTrades() {
+  const params = new URLSearchParams();
+  const sym = document.getElementById('trade-symbol-filter').value;
+  if (sym) params.set('symbol', sym);
+  params.set('limit', '100');
+
+  try {
+    const r = await apiFetch(API + '/trades?' + params);
+    const trades = await r.json();
+
+    // Stats
+    const wins = trades.filter(t => t.realized_pnl > 0).length;
+    const losses = trades.filter(t => t.realized_pnl <= 0).length;
+    const totalPnl = trades.reduce((s, t) => s + t.realized_pnl, 0);
+    const winRate = trades.length > 0 ? (wins / trades.length * 100).toFixed(1) : '0';
+
+    document.getElementById('trade-stats').innerHTML = trades.length > 0 ? `
+      <div class="card"><div class="label">Total Trades</div><div class="value">${trades.length}</div></div>
+      <div class="card"><div class="label">Win Rate</div><div class="value ${wins > losses ? 'pnl-pos' : 'pnl-neg'}">${winRate}%</div></div>
+      <div class="card"><div class="label">Total P&L</div><div class="value ${totalPnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">$${totalPnl.toFixed(2)}</div></div>
+      <div class="card"><div class="label">Wins / Losses</div><div class="value"><span class="pnl-pos">${wins}</span> / <span class="pnl-neg">${losses}</span></div></div>
+    ` : '';
+
+    const tbody = document.getElementById('trades-tbody');
+    if (trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" class="empty">No completed trades</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => `
+      <tr>
+        <td class="text-sm">${fmtTime(t.closed_at)}</td>
+        <td><strong>${t.symbol}</strong></td>
+        <td>${badge(t.side)}</td>
+        <td>${fmtQty(t.qty)}</td>
+        <td>${fmtPrice(t.entry_price)}</td>
+        <td>${fmtPrice(t.exit_price)}</td>
+        <td>${pnl(t.realized_pnl)}</td>
+        <td>${pnlPct(t.realized_pnl_pct)}</td>
+        <td>${t.exit_reason}</td>
+        <td class="text-sm">${holdTime(t.hold_duration_seconds)}</td>
+        <td class="text-sm">${tagsCell(t.tags)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error('Failed to load trades:', e);
+  }
+}
+
+// -- Accounts
+async function loadAccounts() {
+  try {
+    const r = await apiFetch(API + '/accounts');
+    const accounts = await r.json();
+
+    document.getElementById('accounts-cards').innerHTML = accounts.map(a => `
+      <div class="card" style="min-width: 280px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong style="font-size:14px;">${a.name}</strong>
+          ${a.is_default ? '<span class="badge accepted">default</span>' : ''}
+        </div>
+        <div class="text-sm text-muted" style="margin-bottom:4px;">${a.base_url}</div>
+        <div class="text-sm" style="margin-bottom:4px;">
+          Active: ${a.is_active ? '<span class="pnl-pos">Yes</span>' : '<span class="pnl-neg">No</span>'}
+        </div>
+        <div class="text-sm" style="margin-bottom:4px;">
+          Sources: ${a.allowed_sources.length > 0 ? a.allowed_sources.join(', ') : '<span class="text-muted">all</span>'}
+        </div>
+        <div class="text-sm">
+          Risk: ${Object.keys(a.risk_limits).length > 0
+            ? Object.entries(a.risk_limits).map(([k,v]) => k + '=' + v).join(', ')
+            : '<span class="text-muted">none set</span>'}
+        </div>
+        <div class="text-sm text-muted" style="margin-top:6px;">Created ${fmtTime(a.created_at)}</div>
+      </div>
+    `).join('') || '<div class="empty">No accounts configured</div>';
+  } catch(e) {
+    console.error('Failed to load accounts:', e);
+  }
+}
+
+// -- Init + auto-refresh
+loadHealth();
+loadOrders();
+loadWebhookLogs();
+loadPositions();
+loadTrades();
+loadAccounts();
+
+setInterval(() => {
+  loadHealth();
+  if (document.getElementById('auto-refresh-orders').checked) loadOrders();
+  if (document.getElementById('auto-refresh-webhooks').checked) loadWebhookLogs();
+}, 10000);
+
+setInterval(() => {
+  if (document.getElementById('auto-refresh-positions').checked) loadPositions();
+}, 30000);
+</script>
+</body>
+</html>

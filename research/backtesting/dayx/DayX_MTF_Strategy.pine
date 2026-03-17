@@ -1,0 +1,322 @@
+// =============================================================================
+// DayX Multi-Timeframe Strategy
+// Instrument: QQQ | Entry TF: 3min | Regime TF: 15min
+// Strategies: buy_dip, sell_rip, trend_dip
+// Optimized via Optuna Trial #709 (Sharpe 2.55, MaxDD -5.8%)
+// =============================================================================
+
+//@version=6
+strategy("DayX MTF Strategy", overlay=true, initial_capital=100000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     slippage=1, commission_type=strategy.commission.per_order, commission_value=0,
+     process_orders_on_close=false, calc_on_every_tick=false)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// --- Indicator Parameters ---
+i_cci_period      = input.int(18, "CCI Period", group="Indicators")
+i_bb_period       = input.int(25, "BB Period", group="Indicators")
+i_bb_std          = input.float(1.717, "BB Std Dev", step=0.001, group="Indicators")
+i_atr_period      = input.int(18, "ATR Period", group="Indicators")
+i_exhaust_lookback = input.int(8, "Exhaustion Lookback", group="Indicators")
+i_vwap_slope_bars = input.int(6, "VWAP Slope Bars", group="Indicators")
+
+// --- Entry Signal Parameters ---
+i_bb_zone_pct     = input.float(1.15, "BB Zone %", step=0.01, group="Entry Signals")
+i_cci_neutral_lo  = input.int(-96, "CCI Neutral Low (trend_dip)", group="Entry Signals")
+i_cci_neutral_hi  = input.int(98, "CCI Neutral High (trend_dip)", group="Entry Signals")
+i_trend_dip_vwap  = input.float(0.292, "Trend Dip VWAP %", step=0.001, group="Entry Signals")
+i_trend_dip_above = input.float(0.425, "Trend Dip Above VWAP %", step=0.001, group="Entry Signals")
+
+// --- Risk Management ---
+i_stop_atr_mult   = input.float(2.913, "Stop ATR Multiple", step=0.001, group="Risk")
+i_target1_r       = input.float(0.556, "Target 1 R-Multiple", step=0.001, group="Risk")
+i_target2_r       = input.float(2.447, "Target 2 R-Multiple", step=0.001, group="Risk")
+i_partial_pct     = input.float(0.313, "Partial Exit % at T1", step=0.001, group="Risk")
+i_trail_step      = input.float(0.839, "Progressive Trail Step (R)", step=0.001, group="Risk")
+
+// --- Time Filter ---
+i_entry_earliest  = input.session("0957-0957", "Entry Earliest", group="Time")
+i_entry_latest    = input.session("1437-1437", "Entry Latest", group="Time")
+i_eod_flatten     = input.session("1555-1555", "EOD Flatten Time", group="Time")
+i_no_entries_after = input.session("1530-1530", "No Entries After", group="Time")
+
+// --- Regime Filter ---
+i_use_regime      = input.bool(true, "Enable 15Min Regime Filter", group="Regime")
+i_regime_cci_per  = input.int(20, "Regime CCI Period", group="Regime")
+
+// =============================================================================
+// TIME FUNCTIONS
+// =============================================================================
+
+inRTH() =>
+    not na(time(timeframe.period, "0930-1600", "America/New_York"))
+
+timeToMinutes() =>
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    h * 60 + m
+
+inEntryWindow() =>
+    mins = timeToMinutes()
+    mins >= 597 and mins <= 877  // 09:57 to 14:37
+
+noNewEntries() =>
+    timeToMinutes() >= 930  // 15:30
+
+isEOD() =>
+    timeToMinutes() >= 955  // 15:55
+
+isNewSession() =>
+    ta.change(time("D")) != 0
+
+// =============================================================================
+// INDICATORS (3-Minute)
+// =============================================================================
+
+// CCI
+float tp = (high + low + close) / 3
+float cci_val = ta.cci(close, i_cci_period)
+
+// Bollinger Bands
+float bb_mid = ta.sma(close, i_bb_period)
+float bb_dev = ta.stdev(close, i_bb_period)
+float bb_upper = bb_mid + i_bb_std * bb_dev
+float bb_lower = bb_mid - i_bb_std * bb_dev
+float bb_lower_dist = (close - bb_lower) / close * 100
+float bb_upper_dist = (bb_upper - close) / close * 100
+
+// ATR
+float atr_val = ta.atr(i_atr_period)
+
+// VWAP (session-reset, built-in)
+float vwap_val = ta.vwap(hlc3)
+float vwap_slope = vwap_val - vwap_val[i_vwap_slope_bars]
+
+// VWAP distance
+float vwap_dist_pct = (close - vwap_val) / vwap_val * 100
+
+// Session bars above VWAP (running %)
+var int session_bars = 0
+var int session_above = 0
+if isNewSession()
+    session_bars := 0
+    session_above := 0
+if inRTH()
+    session_bars += 1
+    if close > vwap_val
+        session_above += 1
+float vwap_pct_above = session_bars > 0 ? session_above / session_bars : 0.0
+
+// =============================================================================
+// CANDLESTICK PATTERNS
+// =============================================================================
+
+float body = math.abs(close - open)
+float upper_shadow = high - math.max(open, close)
+float lower_shadow = math.min(open, close) - low
+float candle_range = high - low
+
+bool is_hammer = lower_shadow >= 2 * body and upper_shadow <= 0.5 * body and candle_range > 0 and body > 0
+bool is_inv_hammer = upper_shadow >= 2 * body and lower_shadow <= 0.5 * body and candle_range > 0 and body > 0
+
+bool is_bull_engulfing = close > open and close[1] < open[1] and
+     math.min(open, close) <= math.min(open[1], close[1]) and
+     math.max(open, close) >= math.max(open[1], close[1])
+
+bool is_bear_engulfing = close < open and close[1] > open[1] and
+     math.min(open, close) <= math.min(open[1], close[1]) and
+     math.max(open, close) >= math.max(open[1], close[1])
+
+// =============================================================================
+// EXHAUSTION (Consecutive Closes)
+// =============================================================================
+
+var int up_streak = 0
+var int down_streak = 0
+
+if close > close[1]
+    up_streak += 1
+    down_streak := 0
+else if close < close[1]
+    down_streak += 1
+    up_streak := 0
+else
+    up_streak := 0
+    down_streak := 0
+
+bool exhaust_up = up_streak >= i_exhaust_lookback
+bool exhaust_down = down_streak >= i_exhaust_lookback
+
+// =============================================================================
+// 15-MINUTE REGIME FILTER
+// =============================================================================
+
+// Request 15Min data — use [1] to reference the PREVIOUS completed 15Min bar
+// to avoid future leak (current 15Min bar hasn't closed yet on 3Min chart)
+float cci_15m = request.security(syminfo.tickerid, "15", ta.cci(close, i_regime_cci_per)[1], lookahead=barmerge.lookahead_off)
+float vwap_15m = request.security(syminfo.tickerid, "15", ta.vwap(hlc3)[1], lookahead=barmerge.lookahead_off)
+float close_15m = request.security(syminfo.tickerid, "15", close[1], lookahead=barmerge.lookahead_off)
+
+bool regime_bullish = not i_use_regime or (cci_15m > 0 and close_15m > vwap_15m)
+bool regime_bearish = not i_use_regime or (cci_15m < 0 and close_15m < vwap_15m)
+
+// =============================================================================
+// ENTRY SIGNALS
+// =============================================================================
+
+bool in_rth = inRTH()
+bool in_window = inEntryWindow()
+bool can_enter = in_rth and in_window and not noNewEntries() and strategy.position_size == 0
+
+// --- buy_dip ---
+bool sig_buy_dip = can_enter and
+     bb_lower_dist <= i_bb_zone_pct and
+     cci_val < -100 and
+     exhaust_down and
+     (is_hammer or is_bull_engulfing) and
+     close < vwap_val and
+     regime_bullish
+
+// --- sell_rip ---
+bool sig_sell_rip = can_enter and
+     bb_upper_dist <= i_bb_zone_pct and
+     cci_val > 100 and
+     exhaust_up and
+     (is_inv_hammer or is_bear_engulfing) and
+     close > vwap_val and
+     regime_bearish
+
+// --- trend_dip ---
+bool sig_trend_dip = can_enter and
+     vwap_slope > 0 and
+     vwap_pct_above >= i_trend_dip_above and
+     math.abs(vwap_dist_pct) <= i_trend_dip_vwap and
+     cci_val >= i_cci_neutral_lo and
+     cci_val <= i_cci_neutral_hi and
+     (is_hammer or is_bull_engulfing or close > open) and
+     regime_bullish
+
+// =============================================================================
+// POSITION MANAGEMENT
+// =============================================================================
+
+var float entry_price = na
+var float stop_price = na
+var float target1_price = na
+var float target2_price = na
+var bool target1_hit = false
+var float best_r = 0.0
+var string trade_dir = ""
+var float initial_size = 0.0
+
+// --- ENTRIES ---
+if sig_buy_dip or sig_trend_dip
+    float risk = atr_val * i_stop_atr_mult
+    entry_price := close
+    stop_price := close - risk
+    target1_price := close + risk * i_target1_r
+    target2_price := close + risk * i_target2_r
+    target1_hit := false
+    best_r := 0.0
+    trade_dir := "long"
+    string lbl = sig_buy_dip ? "buy_dip" : "trend_dip"
+    strategy.entry("Long", strategy.long, comment=lbl)
+
+if sig_sell_rip
+    float risk = atr_val * i_stop_atr_mult
+    entry_price := close
+    stop_price := close + risk
+    target1_price := close - risk * i_target1_r
+    target2_price := close - risk * i_target2_r
+    target1_hit := false
+    best_r := 0.0
+    trade_dir := "short"
+    strategy.entry("Short", strategy.short, comment="sell_rip")
+
+// --- EXITS ---
+if strategy.position_size != 0
+    float pos_size = math.abs(strategy.position_size)
+
+    // EOD Flatten
+    if isEOD()
+        if strategy.position_size > 0
+            strategy.close("Long", comment="EOD")
+        else
+            strategy.close("Short", comment="EOD")
+
+    // Stop Loss
+    if trade_dir == "long" and strategy.position_size > 0
+        strategy.exit("Stop/T2", "Long",
+             stop=stop_price, limit=target2_price,
+             comment_loss="SL", comment_profit="T2")
+    if trade_dir == "short" and strategy.position_size < 0
+        strategy.exit("Stop/T2", "Short",
+             stop=stop_price, limit=target2_price,
+             comment_loss="SL", comment_profit="T2")
+
+    // Target 1 Partial Exit
+    if not target1_hit
+        if trade_dir == "long" and high >= target1_price
+            float exit_qty = math.floor(pos_size * i_partial_pct)
+            if exit_qty > 0
+                strategy.close("Long", qty=exit_qty, comment="T1")
+            target1_hit := true
+            stop_price := entry_price  // Move to breakeven
+            best_r := i_target1_r
+        if trade_dir == "short" and low <= target1_price
+            float exit_qty = math.floor(pos_size * i_partial_pct)
+            if exit_qty > 0
+                strategy.close("Short", qty=exit_qty, comment="T1")
+            target1_hit := true
+            stop_price := entry_price
+            best_r := i_target1_r
+
+    // Progressive Trailing Stop
+    if target1_hit
+        float risk = math.abs(target1_price - entry_price) / i_target1_r
+        if risk > 0
+            float current_r = 0.0
+            if trade_dir == "long"
+                current_r := (high - entry_price) / risk
+            else
+                current_r := (entry_price - low) / risk
+            if current_r > best_r
+                best_r := current_r
+                float trail_r = (math.floor(best_r / i_trail_step) - 1) * i_trail_step
+                if trail_r > 0
+                    float new_stop = 0.0
+                    if trade_dir == "long"
+                        new_stop := entry_price + trail_r * risk
+                        stop_price := math.max(stop_price, new_stop)
+                    else
+                        new_stop := entry_price - trail_r * risk
+                        stop_price := math.min(stop_price, new_stop)
+
+// =============================================================================
+// PLOTS
+// =============================================================================
+
+// Bollinger Bands
+plot(bb_upper, "BB Upper", color=color.new(color.orange, 70), linewidth=1)
+plot(bb_mid, "BB Mid", color=color.new(color.gray, 70), linewidth=1)
+plot(bb_lower, "BB Lower", color=color.new(color.orange, 70), linewidth=1)
+
+// VWAP
+plot(vwap_val, "VWAP", color=color.new(color.yellow, 30), linewidth=2)
+
+// Stop / Target levels (when in position)
+plot(strategy.position_size != 0 ? stop_price : na, "Stop", color=color.red, style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size != 0 ? target1_price : na, "T1", color=color.green, style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size != 0 ? target2_price : na, "T2", color=color.lime, style=plot.style_linebr, linewidth=1)
+
+// Regime background
+bgcolor(i_use_regime and regime_bullish ? color.new(color.green, 95) :
+        i_use_regime and regime_bearish ? color.new(color.red, 95) : na)
+
+// Entry markers
+plotshape(sig_buy_dip, "Buy Dip", shape.triangleup, location.belowbar, color.blue, size=size.small)
+plotshape(sig_trend_dip, "Trend Dip", shape.triangleup, location.belowbar, color.teal, size=size.small)
+plotshape(sig_sell_rip, "Sell Rip", shape.triangledown, location.abovebar, color.purple, size=size.small)
