@@ -95,6 +95,21 @@ def atr(df: pd.DataFrame, period: int) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
+# RSI (Relative Strength Index)
+# ---------------------------------------------------------------------------
+
+def rsi(df: pd.DataFrame, period: int) -> pd.Series:
+    """Wilder's RSI."""
+    delta = df["close"].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+# ---------------------------------------------------------------------------
 # CCI Divergence
 # ---------------------------------------------------------------------------
 
@@ -251,6 +266,10 @@ def compute_all(df: pd.DataFrame, cfg: DayXConfig) -> pd.DataFrame:
 
     df["vwap"] = vwap(df)
     df["atr"] = atr(df, cfg.atr_period)
+    df["rsi"] = rsi(df, cfg.rsi_period)
+    df["rsi_prev"] = df["rsi"].shift(1)
+    df["rsi_cross_above_30"] = (df["rsi"] > 30) & (df["rsi_prev"] <= 30)
+    df["rsi_cross_below_70"] = (df["rsi"] < 70) & (df["rsi_prev"] >= 70)
 
     # CCI crossovers
     df["cci14_prev"] = df["cci14"].shift(1)

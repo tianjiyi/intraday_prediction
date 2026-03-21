@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -25,17 +25,24 @@ class WebhookRequest(BaseModel):
     idempotency_key: str
     source: str  # freeform: "platform", "tradingview", "external", etc.
     account: str | None = None  # account name; None → default account
-    action: Literal["open", "close", "cancel"]
+    action: str  # "open", "close", "cancel", "buy", "sell"
 
     # Order fields (required for action=open)
     symbol: str = ""
-    side: Literal["buy", "sell"] | None = None
-    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
+    side: str | None = None  # "buy" or "sell" (flexible for TradingView)
+    order_type: str = "market"  # "market", "limit", "stop", "stop_limit"
     limit_price: float | None = None
     stop_price: float | None = None
-    qty: float | None = None
+    qty: float | str | None = None  # Accept string from TradingView placeholders
     notional: float | None = None
-    time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
+    time_in_force: str = "day"  # "day", "gtc", "ioc", "fok"
+
+    @field_validator("qty", mode="before")
+    @classmethod
+    def coerce_qty(cls, v):
+        if v is None or v == "":
+            return None
+        return float(v)
 
     # Bracket order
     bracket: BracketParams | None = None

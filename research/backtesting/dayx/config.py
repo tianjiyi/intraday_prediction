@@ -15,6 +15,7 @@ class DayXConfig:
     bb_period: int = 20
     bb_std: float = 2.0
     atr_period: int = 14
+    rsi_period: int = 14
     exhaustion_lookback: int = 3
 
     # --- Opening range ---
@@ -31,7 +32,8 @@ class DayXConfig:
     trend_slope_bars: int = 5
 
     # --- v2 Mean Reversion zone parameters ---
-    bb_zone_pct: float = 1.0         # Within X% of BB band = "in the zone"
+    bb_zone_pct: float = 1.0         # Within X% of BB band = "in the zone" (legacy)
+    bb_lookback_bars: int = 5        # BB penetration lookback window for buy_dip/sell_rip
     vwap_slope_bars: int = 6         # 6 bars * 5min = 30 min for VWAP slope
     trend_dip_vwap_pct: float = 0.2  # Within 0.2% of VWAP = "touching VWAP"
     trend_dip_above_pct: float = 0.6 # >60% of session bars above VWAP = trend day

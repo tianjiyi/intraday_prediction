@@ -1,0 +1,90 @@
+{
+  "_doc": "TradingView → OMS Webhook Templates for DayX Trial 695",
+  "_updated": "2026-03-20",
+  "_notes": [
+    "Trial 695 uses partial exits (46.7% at T1), so we need TWO alert templates.",
+    "Template A: For strategies WITHOUT partial exits (simple entry/exit).",
+    "Template B: For Trial 695 WITH partial exits (uses strategy.order.action).",
+    "",
+    "HOW TO SET UP IN TRADINGVIEW:",
+    "1. Add the PineScript strategy to a QQQ 1-minute chart",
+    "2. Right-click strategy name → 'Add Alert on ...'",
+    "3. Condition: 'DayX Trial 695' → 'Order fills only'",
+    "4. Paste Template B into the 'Message' field (minified JSON on one line)",
+    "5. Set Webhook URL to: https://oms-481888403086.us-east1.run.app/webhook",
+    "6. Enable the alert",
+    "",
+    "IMPORTANT:",
+    "- The token must match OMS_WEBHOOK_SECRET env var on Cloud Run",
+    "- {{strategy.order.action}} returns 'buy' or 'sell' for EVERY order fill",
+    "- For partial T1 exit: action='sell', qty=46.7% of position (correct)",
+    "- For full T2/stop exit: action='sell', qty=remaining shares (correct)",
+    "- For short entry (sell_rip): action='sell', for short exit: action='buy'",
+    "- OMS _normalize_action maps buy→open(buy), sell→open(sell)",
+    "- The 'comment' field helps track exit reasons in OMS logs"
+  ],
+
+  "_template_A_simple (no partial exits)": {
+    "_usage": "Use when strategy has clean entry/exit without partial scaling",
+    "_minified": "{\"token\":\"6QPWuIDQKqR6QqVmtO-Qf3ihazXPKdAfhv-OBwJB1eo\",\"idempotency_key\":\"tv-{{timenow}}-{{ticker}}-{{strategy.order.id}}\",\"source\":\"tradingview\",\"action\":\"{{strategy.market_position}}\",\"symbol\":\"{{ticker}}\",\"qty\":\"{{strategy.order.contracts}}\",\"order_type\":\"market\",\"time_in_force\":\"day\",\"tags\":{\"strategy\":\"DayX_T695_1Min\"}}",
+    "token": "6QPWuIDQKqR6QqVmtO-Qf3ihazXPKdAfhv-OBwJB1eo",
+    "idempotency_key": "tv-{{timenow}}-{{ticker}}-{{strategy.order.id}}",
+    "source": "tradingview",
+    "action": "{{strategy.market_position}}",
+    "symbol": "{{ticker}}",
+    "qty": "{{strategy.order.contracts}}",
+    "order_type": "market",
+    "time_in_force": "day",
+    "tags": { "strategy": "DayX_T695_1Min" }
+  },
+
+  "_template_B_partial_exits (RECOMMENDED for Trial 695)": {
+    "_usage": "Handles partial exits at T1 correctly. Use strategy.order.action instead of strategy.market_position",
+    "_minified": "{\"token\":\"6QPWuIDQKqR6QqVmtO-Qf3ihazXPKdAfhv-OBwJB1eo\",\"idempotency_key\":\"tv-{{timenow}}-{{ticker}}-{{strategy.order.id}}\",\"source\":\"tradingview\",\"action\":\"{{strategy.order.action}}\",\"symbol\":\"{{ticker}}\",\"qty\":\"{{strategy.order.contracts}}\",\"order_type\":\"market\",\"time_in_force\":\"day\",\"tags\":{\"strategy\":\"DayX_T695_1Min\",\"comment\":\"{{strategy.order.comment}}\"}}",
+    "token": "6QPWuIDQKqR6QqVmtO-Qf3ihazXPKdAfhv-OBwJB1eo",
+    "idempotency_key": "tv-{{timenow}}-{{ticker}}-{{strategy.order.id}}",
+    "source": "tradingview",
+    "action": "{{strategy.order.action}}",
+    "symbol": "{{ticker}}",
+    "qty": "{{strategy.order.contracts}}",
+    "order_type": "market",
+    "time_in_force": "day",
+    "tags": {
+      "strategy": "DayX_T695_1Min",
+      "comment": "{{strategy.order.comment}}"
+    }
+  },
+
+  "_order_flow_examples": {
+    "1_entry_buy_dip": {
+      "action": "buy",
+      "qty": 200,
+      "comment": "",
+      "oms_maps_to": "open(buy) → Alpaca buy 200 QQQ"
+    },
+    "2_partial_exit_t1": {
+      "action": "sell",
+      "qty": 93,
+      "comment": "T1_partial",
+      "oms_maps_to": "open(sell) → Alpaca sell 93 QQQ (partial close)"
+    },
+    "3_full_exit_t2": {
+      "action": "sell",
+      "qty": 107,
+      "comment": "target2",
+      "oms_maps_to": "open(sell) → Alpaca sell 107 QQQ (full close)"
+    },
+    "4_entry_sell_rip": {
+      "action": "sell",
+      "qty": 200,
+      "comment": "",
+      "oms_maps_to": "open(sell) → Alpaca short 200 QQQ"
+    },
+    "5_eod_flatten": {
+      "action": "buy",
+      "qty": 200,
+      "comment": "eod_flatten",
+      "oms_maps_to": "open(buy) → Alpaca buy-to-cover 200 QQQ"
+    }
+  }
+}

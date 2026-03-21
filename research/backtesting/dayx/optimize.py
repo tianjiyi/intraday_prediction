@@ -48,8 +48,8 @@ _out_dir = _root_path / "data" / "backtests" / "dayx"
 
 SEARCH_SPACE = {
     # Signal params
-    "exhaustion_lookback": ("int", 2, 8),
-    "bb_zone_pct": ("float", 0.5, 2.0),
+    "rsi_period": ("int", 7, 21),
+    "bb_lookback_bars": ("int", 1, 10),
     "trend_dip_vwap_pct": ("float", 0.1, 0.5),
     "trend_dip_above_pct": ("float", 0.4, 0.8),
     "cci_neutral_lo": ("int", -100, 0),
@@ -216,7 +216,7 @@ def run_optimization(symbol: str, timeframe: str, n_trials: int = 500,
         db_path.parent.mkdir(parents=True, exist_ok=True)
         storage = f"sqlite:///{db_path}"
 
-    study_name = f"dayx_{symbol}_{timeframe}"
+    study_name = f"dayx_v3_{symbol}_{timeframe}"
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,

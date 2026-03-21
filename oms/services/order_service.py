@@ -30,8 +30,41 @@ class OrderService:
         self._risk_manager = risk_manager
         self._webhook_secret = webhook_secret
 
+    @staticmethod
+    def _normalize_action(req: WebhookRequest) -> str:
+        """Map TradingView-style actions to OMS actions.
+
+        buy/sell → open (with side inferred).  Alpaca natively handles
+        "sell 93 shares" against a 200-share long as a partial reduction,
+        so we always map to "open" and let Alpaca sort out the net effect.
+
+        flat → close (entire position)
+        long/short → open (with side inferred)
+        """
+        action = req.action.lower().strip()
+        if action in ("open", "close", "cancel"):
+            return action
+        if action == "buy":
+            req.side = "buy"
+            return "open"
+        if action == "sell":
+            req.side = "sell"
+            return "open"
+        if action == "long":
+            req.side = "buy"
+            return "open"
+        if action == "short":
+            req.side = "sell"
+            return "open"
+        if action == "flat":
+            return "close"
+        return action  # pass through, will be rejected downstream
+
     async def handle_webhook(self, req: WebhookRequest) -> WebhookResponse:
         """Process an incoming webhook request end-to-end."""
+
+        # 0. Normalize TradingView actions
+        req.action = self._normalize_action(req)
 
         # 1. Validate token (skip if no secret configured — dev mode)
         if self._webhook_secret and req.token != self._webhook_secret:
@@ -74,9 +107,62 @@ class OrderService:
             return WebhookResponse(status="rejected", reason=f"Unknown action: {req.action}")
 
     async def _handle_open(self, req: WebhookRequest, account: Account) -> WebhookResponse:
-        """Place a new order."""
+        """Place a new order. Auto-closes opposite positions and cancels conflicting orders."""
         if not req.symbol or not req.side:
             return await self._create_rejected_order(req, account, "symbol and side required for open")
+
+        symbol = req.symbol.upper()
+
+        # Auto-flatten: close opposite position before opening a NEW position.
+        # Skip auto-flatten for partial exits (sell qty < existing long qty, or
+        # buy qty < existing short qty) — Alpaca handles partial reduction natively.
+        try:
+            positions = await self._executor.get_positions(account)
+            existing = next((p for p in positions if p["symbol"] == symbol), None)
+
+            if existing:
+                existing_side = existing["side"]  # "long" or "short"
+                existing_qty = existing["qty"]
+                new_is_long = req.side == "buy"
+                order_qty = float(req.qty) if req.qty else 0
+
+                is_opposite = (existing_side == "long" and not new_is_long) or \
+                              (existing_side == "short" and new_is_long)
+
+                if is_opposite and order_qty > 0 and order_qty < existing_qty:
+                    # Partial exit: sell part of a long, or buy-to-cover part of a short.
+                    # Don't auto-flatten — just submit the order directly and Alpaca
+                    # will reduce the position by order_qty.
+                    logger.info(
+                        f"OMS: Partial exit detected — {req.side} {order_qty} of "
+                        f"{existing_qty} {existing_side} {symbol} (no auto-flatten)"
+                    )
+                elif is_opposite:
+                    # Full reversal: close existing position first, then open new
+                    logger.info(
+                        f"OMS: Auto-closing {existing_side} {symbol} "
+                        f"before opening {req.side}"
+                    )
+                    await self._executor.close_position(account, symbol)
+
+            # Cancel any open orders for this symbol to avoid conflicts
+            try:
+                from alpaca.trading.requests import GetOrdersRequest
+                from alpaca.trading.enums import QueryOrderStatus
+                client = self._executor._get_client(account)
+                orders_req = GetOrdersRequest(
+                    status=QueryOrderStatus.OPEN,
+                    symbols=[symbol],
+                )
+                open_orders = client.get_orders(orders_req)
+                for o in open_orders:
+                    logger.info(f"OMS: Auto-canceling open order {o.id} for {symbol}")
+                    client.cancel_order_by_id(str(o.id))
+            except Exception as e:
+                logger.debug(f"OMS: Could not check/cancel open orders: {e}")
+
+        except Exception as e:
+            logger.warning(f"OMS: Auto-flatten check failed (proceeding anyway): {e}")
 
         # Create order record
         order = Order(

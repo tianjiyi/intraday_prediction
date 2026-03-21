@@ -94,38 +94,40 @@ def short_chaseDown(df: pd.DataFrame, cfg: DayXConfig) -> pd.Series:
 
 def buy_dip(df: pd.DataFrame, cfg: DayXConfig) -> pd.Series:
     """
-    Mean reversion long: selling is exhausted, buy the bounce.
-    Zone:      close within bb_zone_pct% of BB_lower
-    Confirm:   CCI14 < -100 (oversold)
-    Exhaustion: consecutive down closes (selling is running out of steam)
-    Entry:     candle reversal pattern (hammer or bullish engulfing)
-    Context:   close < VWAP (below fair value)
+    Mean reversion long: price recently hit BB lower, RSI now recovering.
+    Extreme:   low dipped below BB_lower within last N bars
+    Timing:    RSI crosses back above 30 (was oversold, now recovering)
+    Entry:     bullish candle (hammer, engulfing, or rejection wick)
     """
-    in_zone = df["bb_lower_dist"] <= cfg.bb_zone_pct
-    oversold = df["cci14"] < -100
-    exhausted = df["exhaust_down"]  # consecutive down closes hit lookback threshold
-    reversal = df["hammer"] | df["bull_engulfing"]
-    below_vwap = df["close"] < df["vwap"]
+    bb_touched = (df["low"] <= df["bb_lower"]).rolling(
+        cfg.bb_lookback_bars, min_periods=1
+    ).max().astype(bool)
+    rsi_recovering = df["rsi_cross_above_30"]
+    body = (df["close"] - df["open"]).abs()
+    lower_wick = df[["open", "close"]].min(axis=1) - df["low"]
+    rejection_wick = (lower_wick > body) & (body > 0)
+    reversal = df["hammer"] | df["bull_engulfing"] | rejection_wick
 
-    return in_zone & oversold & exhausted & reversal & below_vwap
+    return bb_touched & rsi_recovering & reversal
 
 
 def sell_rip(df: pd.DataFrame, cfg: DayXConfig) -> pd.Series:
     """
-    Mean reversion short: buying is exhausted, sell the rejection.
-    Zone:      close within bb_zone_pct% of BB_upper
-    Confirm:   CCI14 > 100 (overbought)
-    Exhaustion: consecutive up closes (buying is running out of steam)
-    Entry:     candle reversal pattern (inverted hammer or bearish engulfing)
-    Context:   close > VWAP (above fair value)
+    Mean reversion short: price recently hit BB upper, RSI now rejecting.
+    Extreme:   high pushed above BB_upper within last N bars
+    Timing:    RSI crosses back below 70 (was overbought, now fading)
+    Entry:     bearish candle (inv hammer, engulfing, or rejection top wick)
     """
-    in_zone = df["bb_upper_dist"] <= cfg.bb_zone_pct
-    overbought = df["cci14"] > 100
-    exhausted = df["exhaust_up"]  # consecutive up closes hit lookback threshold
-    reversal = df["inv_hammer"] | df["bear_engulfing"]
-    above_vwap = df["close"] > df["vwap"]
+    bb_touched = (df["high"] >= df["bb_upper"]).rolling(
+        cfg.bb_lookback_bars, min_periods=1
+    ).max().astype(bool)
+    rsi_rejecting = df["rsi_cross_below_70"]
+    body = (df["close"] - df["open"]).abs()
+    upper_wick = df["high"] - df[["open", "close"]].max(axis=1)
+    rejection_top = (upper_wick > body) & (body > 0)
+    reversal = df["inv_hammer"] | df["bear_engulfing"] | rejection_top
 
-    return in_zone & overbought & exhausted & reversal & above_vwap
+    return bb_touched & rsi_rejecting & reversal
 
 
 def trend_dip(df: pd.DataFrame, cfg: DayXConfig) -> pd.Series:

@@ -145,11 +145,12 @@ class PositionManager:
             return True
 
         # --- Stop-loss ---
+        stop_reason = "trail_stop" if pos.target1_hit else "stop_loss"
         if trade.direction == "long" and low <= trade.stop_price:
-            self._close_position(timestamp, trade.stop_price, "stop_loss")
+            self._close_position(timestamp, trade.stop_price, stop_reason)
             return True
         if trade.direction == "short" and high >= trade.stop_price:
-            self._close_position(timestamp, trade.stop_price, "stop_loss")
+            self._close_position(timestamp, trade.stop_price, stop_reason)
             return True
 
         # --- Target 2 (full exit) ---
