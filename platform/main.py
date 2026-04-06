@@ -26,6 +26,7 @@ from pydantic import BaseModel
 # Add parent directory to path for Kronos submodule
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Kronos"))
+sys.path.insert(0, r"C:\Users\skysn\workspace\weekly_option")
 
 # Load .env file (supports both platform/.env and project root .env)
 _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -568,6 +569,20 @@ async def get_latest_prediction():
         return JSONResponse({"error": str(e)}, status_code=500)
 
  
+
+class OptionsDashboardRequest(BaseModel):
+    symbol: str = "QQQ"
+    expiration: str = ""
+
+@app.post("/api/options/dashboard")
+async def options_dashboard(req: OptionsDashboardRequest):
+    from options_dashboard_service import generate_dashboard
+    # Bridge platform's ALPACA_KEY_ID -> ALPACA_API_KEY expected by weekly_option
+    if not os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_KEY_ID"):
+        os.environ["ALPACA_API_KEY"] = os.environ["ALPACA_KEY_ID"]
+    html = await asyncio.to_thread(generate_dashboard, symbol=req.symbol, expiration=req.expiration if req.expiration else None)
+    return HTMLResponse(content=html)
+
 
 @app.post("/api/start_stream")
 async def start_stream(request: StartStreamRequest):

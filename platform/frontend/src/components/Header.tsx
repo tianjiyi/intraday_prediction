@@ -55,6 +55,13 @@ export function Header() {
         <span className={`${styles.dot} ${wsConnected ? styles.connected : ''}`} />
         <button
           className={styles.langToggle}
+          onClick={() => navigate('/options')}
+          title="Options Dashboard"
+        >
+          Options
+        </button>
+        <button
+          className={styles.langToggle}
           onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
           title={locale === 'en' ? '切换到中文' : 'Switch to English'}
         >
